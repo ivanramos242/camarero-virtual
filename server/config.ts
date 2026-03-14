@@ -1,0 +1,51 @@
+import path from 'node:path';
+import process from 'node:process';
+import 'dotenv/config';
+
+import type { AppBranding } from '../types.js';
+
+const buildCsvUrl = (explicitUrl?: string, sheetId?: string) => {
+  const trimmedUrl = explicitUrl?.trim();
+  if (trimmedUrl) {
+    return trimmedUrl;
+  }
+
+  const trimmedSheetId = sheetId?.trim();
+  if (!trimmedSheetId) {
+    return undefined;
+  }
+
+  return `https://docs.google.com/spreadsheets/d/${trimmedSheetId}/gviz/tq?tqx=out:csv`;
+};
+
+const toPort = (rawValue: string | undefined, fallback: number) => {
+  const parsedValue = Number(rawValue);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
+};
+
+export const serverConfig = {
+  port: toPort(process.env.PORT, 8787),
+  isProduction: process.env.NODE_ENV === 'production',
+  sessionCookieName: 'ramiro_kitchen_session',
+  sessionDurationMs: 1000 * 60 * 60 * 12,
+  sseHeartbeatMs: 20_000,
+  menuCacheTtlMs: 60_000,
+  frontendDistPath: path.join(process.cwd(), 'dist'),
+  dataFilePath: path.join(process.cwd(), 'data', 'store.json'),
+  geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? '',
+  geminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-live-2.5-flash-preview',
+  kitchenPassword: process.env.KITCHEN_PASSWORD?.trim() || 'ramiro-cocina',
+  menuCsvUrl: buildCsvUrl(process.env.MENU_CSV_URL, process.env.MENU_SHEET_ID),
+  legacyOrdersCsvUrl: buildCsvUrl(process.env.ORDERS_CSV_URL, process.env.ORDERS_SHEET_ID),
+  n8nWebhookUrl: process.env.N8N_WEBHOOK_URL?.trim() || undefined,
+};
+
+export const publicBranding: AppBranding = {
+  restaurantName: process.env.RESTAURANT_NAME?.trim() || 'Ramiro',
+  assistantName: process.env.ASSISTANT_NAME?.trim() || 'Ramiro',
+  kitchenName: process.env.KITCHEN_NAME?.trim() || 'Cocina',
+  tagline: process.env.APP_TAGLINE?.trim() || 'Servicio digital para sala y cocina',
+  supportManualOrdering: true,
+  showDebugTools: process.env.SHOW_DEBUG_TOOLS === 'true',
+  voiceEnabled: Boolean(serverConfig.geminiApiKey),
+};

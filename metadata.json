@@ -1,0 +1,7 @@
+{
+  "name": "Remix: Camarero Virtual Ramiro",
+  "description": "An interactive voice-enabled virtual waiter powered by Gemini Live API. Takes orders, answers questions, and simulates syncing with Google Sheets.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
