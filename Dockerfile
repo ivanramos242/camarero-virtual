@@ -20,7 +20,7 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY --from=build /app/public ./public
-COPY --from=build /app/data ./data
+RUN mkdir -p /app/data
 
 EXPOSE 8787
 
