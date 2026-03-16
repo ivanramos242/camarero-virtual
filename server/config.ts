@@ -34,11 +34,20 @@ export const serverConfig = {
   dataFilePath: path.join(process.cwd(), 'data', 'store.json'),
   geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? '',
   geminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-live-2.5-flash-preview',
+  openAiApiKey: process.env.OPENAI_API_KEY?.trim() ?? '',
+  openAiRealtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime',
+  openAiVoice: process.env.OPENAI_REALTIME_VOICE?.trim() || 'alloy',
   kitchenPassword: process.env.KITCHEN_PASSWORD?.trim() || 'ramiro-cocina',
   menuCsvUrl: buildCsvUrl(process.env.MENU_CSV_URL, process.env.MENU_SHEET_ID),
   legacyOrdersCsvUrl: buildCsvUrl(process.env.ORDERS_CSV_URL, process.env.ORDERS_SHEET_ID),
   n8nWebhookUrl: process.env.N8N_WEBHOOK_URL?.trim() || undefined,
 };
+
+const resolvedVoiceProvider = serverConfig.geminiApiKey
+  ? 'gemini'
+  : serverConfig.openAiApiKey
+    ? 'openai'
+    : 'none';
 
 export const publicBranding: AppBranding = {
   restaurantName: process.env.RESTAURANT_NAME?.trim() || 'Ramiro',
@@ -47,5 +56,6 @@ export const publicBranding: AppBranding = {
   tagline: process.env.APP_TAGLINE?.trim() || 'Servicio digital para sala y cocina',
   supportManualOrdering: true,
   showDebugTools: process.env.SHOW_DEBUG_TOOLS === 'true',
-  voiceEnabled: Boolean(serverConfig.geminiApiKey),
+  voiceEnabled: resolvedVoiceProvider !== 'none',
+  voiceProvider: resolvedVoiceProvider,
 };

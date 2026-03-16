@@ -47,6 +47,7 @@ const defaultBranding: AppBranding = {
   supportManualOrdering: true,
   showDebugTools: false,
   voiceEnabled: false,
+  voiceProvider: 'none',
 };
 
 type DiningView = 'assistant' | 'menu' | 'debug';

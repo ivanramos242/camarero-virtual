@@ -68,13 +68,24 @@ export interface UpdateOrderStatusRequest {
   status: OrderStatus;
 }
 
-export interface SessionTokenResponse {
+export interface GeminiSessionTokenResponse {
+  provider: 'gemini';
   token: string;
   expiresAt: string;
   newSessionExpiresAt: string;
   model: string;
   apiVersion: 'v1alpha';
 }
+
+export interface OpenAiSessionTokenResponse {
+  provider: 'openai';
+  mode: 'unified';
+  model: string;
+  endpoint: string;
+  voice: string;
+}
+
+export type SessionTokenResponse = GeminiSessionTokenResponse | OpenAiSessionTokenResponse;
 
 export interface AppBranding {
   restaurantName: string;
@@ -84,6 +95,7 @@ export interface AppBranding {
   supportManualOrdering: boolean;
   showDebugTools: boolean;
   voiceEnabled: boolean;
+  voiceProvider: 'gemini' | 'openai' | 'none';
 }
 
 export interface SessionStatusResponse {

@@ -82,6 +82,46 @@ const requireKitchenAuth: express.RequestHandler = (request, response, next) => 
   next();
 };
 
+const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
+  const newSessionExpiresAt = new Date(Date.now() + 1000 * 60).toISOString();
+
+  const ai = new GoogleGenAI({
+    apiKey: serverConfig.geminiApiKey,
+    httpOptions: {
+      apiVersion: 'v1alpha',
+    },
+  });
+
+  const token = await ai.authTokens.create({
+    config: {
+      uses: 1,
+      expireTime: expiresAt,
+      newSessionExpireTime: newSessionExpiresAt,
+      liveConnectConstraints: {
+        model: serverConfig.geminiLiveModel,
+      },
+    },
+  });
+
+  return {
+    provider: 'gemini',
+    token: token.name ?? '',
+    expiresAt,
+    newSessionExpiresAt,
+    model: serverConfig.geminiLiveModel,
+    apiVersion: 'v1alpha',
+  };
+};
+
+const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
+  provider: 'openai',
+  mode: 'unified',
+  model: serverConfig.openAiRealtimeModel,
+  endpoint: '/api/session/openai',
+  voice: serverConfig.openAiVoice,
+});
+
 app.use(express.json());
 app.use(cookieParser());
 
@@ -187,7 +227,7 @@ app.post('/api/auth/login', (request, response) => {
   const { password } = loginSchema.parse(request.body);
 
   if (!safePasswordMatch(password, serverConfig.kitchenPassword)) {
-    response.status(401).json({ message: 'Contraseña incorrecta.' });
+    response.status(401).json({ message: 'Contrasena incorrecta.' });
     return;
   }
 
@@ -215,45 +255,74 @@ app.post('/api/auth/logout', (request, response) => {
 });
 
 app.post('/api/session/token', async (_request, response) => {
-  if (!serverConfig.geminiApiKey) {
-    response.status(503).json({ message: 'La voz no está configurada en el servidor.' });
+  try {
+    if (serverConfig.geminiApiKey) {
+      try {
+        const payload = await buildGeminiSessionToken();
+        response.json(payload);
+        return;
+      } catch (error) {
+        console.error('[voice] Gemini no ha podido abrir sesion, se intentara OpenAI:', error);
+      }
+    }
+
+    if (serverConfig.openAiApiKey) {
+      response.json(buildOpenAiSessionConfig());
+      return;
+    }
+
+    response.status(503).json({ message: 'La voz no esta configurada en el servidor.' });
+  } catch (error) {
+    console.error('[voice] No se pudo preparar la sesion de voz:', error);
+    response.status(500).json({ message: 'No se pudo abrir una sesion de voz.' });
+  }
+});
+
+app.post('/api/session/openai', express.text({ type: ['application/sdp', 'text/plain'] }), async (request, response) => {
+  if (!serverConfig.openAiApiKey) {
+    response.status(503).send('OpenAI no esta configurado en el servidor.');
+    return;
+  }
+
+  const sdpOffer = typeof request.body === 'string' ? request.body.trim() : '';
+  if (!sdpOffer) {
+    response.status(400).send('Falta la oferta SDP.');
     return;
   }
 
   try {
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
-    const newSessionExpiresAt = new Date(Date.now() + 1000 * 60).toISOString();
+    const payload = new FormData();
+    payload.append('sdp', sdpOffer);
+    payload.append(
+      'session',
+      JSON.stringify({
+        type: 'realtime',
+        model: serverConfig.openAiRealtimeModel,
+        voice: serverConfig.openAiVoice,
+      }),
+    );
 
-    const ai = new GoogleGenAI({
-      apiKey: serverConfig.geminiApiKey,
-      httpOptions: {
-        apiVersion: 'v1alpha',
+    const openAiResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serverConfig.openAiApiKey}`,
       },
+      body: payload,
     });
 
-    const token = await ai.authTokens.create({
-      config: {
-        uses: 1,
-        expireTime: expiresAt,
-        newSessionExpireTime: newSessionExpiresAt,
-        liveConnectConstraints: {
-          model: serverConfig.geminiLiveModel,
-        },
-      },
-    });
+    const answerSdp = await openAiResponse.text();
 
-    const payload: SessionTokenResponse = {
-      token: token.name ?? '',
-      expiresAt,
-      newSessionExpiresAt,
-      model: serverConfig.geminiLiveModel,
-      apiVersion: 'v1alpha',
-    };
+    if (!openAiResponse.ok) {
+      console.error('[voice] OpenAI realtime ha fallado:', answerSdp);
+      response.status(openAiResponse.status).send(answerSdp || 'No se pudo abrir la sesion OpenAI.');
+      return;
+    }
 
-    response.json(payload);
+    response.setHeader('Content-Type', 'application/sdp');
+    response.send(answerSdp);
   } catch (error) {
-    console.error('[voice] No se pudo crear el token efímero:', error);
-    response.status(500).json({ message: 'No se pudo abrir una sesión de voz.' });
+    console.error('[voice] No se pudo negociar la sesion OpenAI:', error);
+    response.status(500).send('No se pudo abrir la sesion OpenAI.');
   }
 });
 

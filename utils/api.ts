@@ -10,12 +10,14 @@ import type {
 } from '../types';
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(input, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -98,6 +100,23 @@ export async function createVoiceSessionToken() {
   return request<SessionTokenResponse>('/api/session/token', {
     method: 'POST',
   });
+}
+
+export async function createOpenAiRealtimeAnswer(endpoint: string, sdpOffer: string) {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/sdp',
+    },
+    body: sdpOffer,
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || 'No se pudo abrir la sesion de OpenAI.');
+  }
+
+  return response.text();
 }
 
 export function createOrdersEventSource(tableNumber?: string) {
