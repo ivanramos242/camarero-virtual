@@ -260,7 +260,7 @@ app.post('/api/session/token', async (_request, response) => {
 if (serverConfig.isProduction) {
   app.use(express.static(serverConfig.frontendDistPath));
 
-  app.get('*', (request, response, next) => {
+  app.use((request, response, next) => {
     if (request.path.startsWith('/api')) {
       next();
       return;
