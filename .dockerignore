@@ -1,0 +1,10 @@
+node_modules
+dist
+dist-server
+.git
+.gitignore
+.env
+.vite-dev.log
+.vite-dev.err.log
+npm-debug.log
+README.md
