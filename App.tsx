@@ -789,25 +789,27 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {viewTabs.map((tab) => {
-              const Icon = tab.icon;
+          {viewTabs.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {viewTabs.map((tab) => {
+                const Icon = tab.icon;
 
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  onClick={() => setActiveView(tab.value)}
-                  className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-                    activeView === tab.value ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                  }`}
-                >
-                  <Icon size={15} />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() => setActiveView(tab.value)}
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
+                      activeView === tab.value ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                    }`}
+                  >
+                    <Icon size={15} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
 
         {(configError || menuError || ordersError) ? (
