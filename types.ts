@@ -155,6 +155,10 @@ export interface ReorderMenuRequest {
   items: ReorderMenuItem[];
 }
 
+export interface UploadImageResponse {
+  imageUrl: string;
+}
+
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface LogMessage {

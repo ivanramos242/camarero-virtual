@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { GoogleGenAI } from '@google/genai';
 import cookieParser from 'cookie-parser';
 import express from 'express';
+import multer from 'multer';
 import { z } from 'zod';
 
 import type {
@@ -16,6 +18,7 @@ import type {
   ReorderMenuRequest,
   SessionStatusResponse,
   SessionTokenResponse,
+  UploadImageResponse,
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
 } from '../types.js';
@@ -38,6 +41,7 @@ const kitchenSessions = new Map<string, number>();
 const adminSessions = new Map<string, number>();
 
 const orderStatusValues = ['pending', 'cooking', 'ready', 'served'] as const satisfies readonly OrderStatus[];
+const allowedUploadMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 const createOrderSchema = z.object({
   tableNumber: z.string().trim().min(1).max(16),
@@ -89,6 +93,36 @@ const reorderMenuSchema = z.object({
       sortOrder: z.coerce.number().int().min(0),
     }),
   ),
+});
+
+const uploadsStorage = multer.diskStorage({
+  destination: async (_request, _file, callback) => {
+    try {
+      await mkdir(serverConfig.uploadsDirPath, { recursive: true });
+      callback(null, serverConfig.uploadsDirPath);
+    } catch (error) {
+      callback(error instanceof Error ? error : new Error('No se pudo preparar la carpeta de uploads.'), serverConfig.uploadsDirPath);
+    }
+  },
+  filename: (_request, file, callback) => {
+    const extension = path.extname(file.originalname) || '.jpg';
+    callback(null, `${crypto.randomUUID()}${extension.toLowerCase()}`);
+  },
+});
+
+const uploadImage = multer({
+  storage: uploadsStorage,
+  limits: {
+    fileSize: serverConfig.uploadMaxFileSizeBytes,
+  },
+  fileFilter: (_request, file, callback) => {
+    if (!allowedUploadMimeTypes.has(file.mimetype)) {
+      callback(new Error('Solo se permiten imagenes JPG, PNG, WEBP o GIF.'));
+      return;
+    }
+
+    callback(null, true);
+  },
 });
 
 const safePasswordMatch = (providedPassword: string, expectedPassword: string) => {
@@ -187,6 +221,7 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
 
 app.use(express.json());
 app.use(cookieParser());
+app.use('/uploads', express.static(serverConfig.uploadsDirPath));
 
 app.get('/api/config', (_request, response) => {
   response.json(publicBranding);
@@ -401,6 +436,32 @@ app.post('/api/admin/auth/logout', (request, response) => {
 
   response.clearCookie(serverConfig.adminSessionCookieName);
   response.status(204).end();
+});
+
+app.post('/api/admin/uploads/image', requireAdminAuth, (request, response) => {
+  uploadImage.single('image')(request, response, (error) => {
+    if (error) {
+      const message =
+        error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE'
+          ? 'La imagen supera el limite de 5 MB.'
+          : error instanceof Error
+            ? error.message
+            : 'No se pudo subir la imagen.';
+      response.status(400).json({ message });
+      return;
+    }
+
+    if (!request.file) {
+      response.status(400).json({ message: 'Falta el archivo de imagen.' });
+      return;
+    }
+
+    const payload: UploadImageResponse = {
+      imageUrl: `/uploads/${request.file.filename}`,
+    };
+
+    response.status(201).json(payload);
+  });
 });
 
 app.get('/api/admin/menu', requireAdminAuth, async (_request, response) => {

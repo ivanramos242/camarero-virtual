@@ -49,6 +49,7 @@ import {
   deleteAdminMenuItemOnApi,
   fetchPublicConfig,
   reorderAdminMenuOnApi,
+  uploadAdminImageOnApi,
   updateAdminMenuItemAvailabilityOnApi,
   updateAdminMenuItemOnApi,
   updateOrderStatusOnApi,
@@ -1283,6 +1284,7 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   useEffect(() => {
     if (!actionSuccess) {
@@ -1395,6 +1397,22 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
     [menu, withMenuAction],
   );
 
+  const handleUploadImage = useCallback(async (file: File) => {
+    try {
+      setIsUploadingImage(true);
+      setActionError(null);
+      const { imageUrl } = await uploadAdminImageOnApi(file);
+      setActionSuccess('Imagen subida correctamente.');
+      return imageUrl;
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : 'No se pudo subir la imagen.';
+      setActionError(message);
+      throw requestError;
+    } finally {
+      setIsUploadingImage(false);
+    }
+  }, []);
+
   const handleLogout = useCallback(async () => {
     await onLogout();
     navigate('/admin/login');
@@ -1412,11 +1430,13 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
       actionError={actionError}
       actionSuccess={actionSuccess}
       isSaving={isSaving}
+      isUploadingImage={isUploadingImage}
       onSave={(itemId, payload) => handleSave(itemId, payload as CreateMenuItemRequest)}
       onDelete={handleDelete}
       onDuplicate={handleDuplicate}
       onToggleAvailability={handleToggleAvailability}
       onMoveItem={handleMoveItem}
+      onUploadImage={handleUploadImage}
       onRefreshMenu={() => {
         setActionError(null);
         void refreshMenu();

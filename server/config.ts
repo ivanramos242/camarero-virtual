@@ -34,6 +34,8 @@ export const serverConfig = {
   menuCacheTtlMs: 60_000,
   frontendDistPath: path.join(process.cwd(), 'dist'),
   dataFilePath: path.join(process.cwd(), 'data', 'store.json'),
+  uploadsDirPath: path.join(process.cwd(), 'data', 'uploads'),
+  uploadMaxFileSizeBytes: 5 * 1024 * 1024,
   geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? '',
   geminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-live-2.5-flash-preview',
   openAiApiKey: process.env.OPENAI_API_KEY?.trim() ?? '',

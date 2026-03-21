@@ -10,6 +10,7 @@ import type {
   ReorderMenuRequest,
   SessionStatusResponse,
   SessionTokenResponse,
+  UploadImageResponse,
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
   UpdateOrderStatusRequest,
@@ -164,6 +165,16 @@ export async function reorderAdminMenuOnApi(payload: ReorderMenuRequest) {
   return request<MenuItem[]>('/api/admin/menu/reorder', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadAdminImageOnApi(file: File) {
+  const formData = new FormData();
+  formData.append('image', file);
+
+  return request<UploadImageResponse>('/api/admin/uploads/image', {
+    method: 'POST',
+    body: formData,
   });
 }
 

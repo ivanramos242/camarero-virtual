@@ -84,4 +84,5 @@ Para contenedor/EasyPanel:
 - `/kitchen` requiere sesion por cookie `httpOnly`.
 - `/admin` requiere sesion propia por cookie `httpOnly`.
 - La carta editable vive ya en `data/store.json` y se actualiza en tiempo real por SSE.
+- Las imagenes subidas desde admin se guardan en `data/uploads/` y se sirven por `/uploads/*`.
 - La voz ya no expone la `GEMINI_API_KEY` en el bundle del navegador.

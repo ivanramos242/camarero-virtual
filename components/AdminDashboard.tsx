@@ -26,11 +26,13 @@ interface AdminDashboardProps {
   actionError?: string | null;
   actionSuccess?: string | null;
   isSaving: boolean;
+  isUploadingImage: boolean;
   onSave: (itemId: string | null, payload: CreateMenuItemRequest | UpdateMenuItemRequest) => Promise<void>;
   onDelete: (itemId: string) => Promise<void>;
   onDuplicate: (item: MenuItem) => Promise<void>;
   onToggleAvailability: (itemId: string, available: boolean) => Promise<void>;
   onMoveItem: (itemId: string, direction: 'up' | 'down') => Promise<void>;
+  onUploadImage: (file: File) => Promise<string>;
   onRefreshMenu: () => void;
   onRefreshOrders: () => void;
   onLogout: () => void;
@@ -108,11 +110,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
   actionError,
   actionSuccess,
   isSaving,
+  isUploadingImage,
   onSave,
   onDelete,
   onDuplicate,
   onToggleAvailability,
   onMoveItem,
+  onUploadImage,
   onRefreshMenu,
   onRefreshOrders,
   onLogout,
@@ -487,6 +491,44 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   placeholder="https://..."
                 />
               </label>
+
+              <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50 px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-stone-800">Subir imagen desde archivo</p>
+                    <p className="text-xs text-stone-500">JPG, PNG, WEBP o GIF. Maximo 5 MB.</p>
+                  </div>
+                  {isUploadingImage ? (
+                    <span className="inline-flex items-center gap-2 text-xs text-stone-500">
+                      <Loader2 size={14} className="animate-spin" />
+                      Subiendo
+                    </span>
+                  ) : null}
+                </div>
+
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) {
+                      return;
+                    }
+
+                    void onUploadImage(file).then((imageUrl) => {
+                      setFormState((current) => ({ ...current, imageUrl }));
+                    });
+                    event.currentTarget.value = '';
+                  }}
+                  className="block w-full text-sm text-stone-600 file:mr-4 file:rounded-lg file:border-0 file:bg-stone-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white"
+                />
+
+                {formState.imageUrl ? (
+                  <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
+                    <img src={formState.imageUrl} alt="Vista previa del plato" className="h-44 w-full object-cover" />
+                  </div>
+                ) : null}
+              </div>
 
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-stone-700">Ingredientes</span>
