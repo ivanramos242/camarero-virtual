@@ -36,7 +36,7 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
   };
 
   return (
-    <section className="panel overflow-hidden">
+    <section className="panel min-w-0 overflow-hidden">
       <div className="border-b border-stone-200 px-5 py-4">
         <h2 className="text-base font-semibold text-stone-900">Carta disponible</h2>
         <p className="mt-1 text-sm text-stone-500">Añade platos manualmente si prefieres no usar la voz.</p>

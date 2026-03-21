@@ -102,7 +102,8 @@ button:disabled {
 }
 
 .page-container {
-  width: min(1280px, calc(100vw - 32px));
+  width: min(1280px, calc(100% - 32px));
+  max-width: calc(100vw - 32px);
   margin: 0 auto;
 }
 
@@ -120,7 +121,8 @@ button {
 
 @media (max-width: 640px) {
   .page-container {
-    width: min(100vw - 16px, 100%);
+    width: calc(100% - 16px);
+    max-width: calc(100vw - 16px);
   }
 
   body {
