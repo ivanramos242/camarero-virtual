@@ -11,7 +11,6 @@ import {
 import {
   AlertCircle,
   ChefHat,
-  LayoutGrid,
   Loader2,
   Mic,
   MicOff,
@@ -50,7 +49,7 @@ const defaultBranding: AppBranding = {
   voiceProvider: 'none',
 };
 
-type DiningView = 'assistant' | 'menu' | 'debug';
+type DiningView = 'main' | 'debug';
 
 function createCartId() {
   if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
@@ -286,7 +285,7 @@ interface DiningPageProps {
 function DiningPage({ branding, configError, menu, menuError, menuLoading, refreshMenu }: DiningPageProps) {
   const { tableNumber = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const [activeView, setActiveView] = useState<DiningView>(branding.voiceEnabled ? 'assistant' : 'menu');
+  const [activeView, setActiveView] = useState<DiningView>('main');
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState('Cliente');
   const [dinersCount, setDinersCount] = useState(1);
@@ -304,9 +303,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
   useEffect(() => {
     if (!debugEnabled && activeView === 'debug') {
-      setActiveView(branding.voiceEnabled ? 'assistant' : 'menu');
+      setActiveView('main');
     }
-  }, [activeView, branding.voiceEnabled, debugEnabled]);
+  }, [activeView, debugEnabled]);
 
   useEffect(() => {
     if (!submitSuccess) {
@@ -468,18 +467,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const viewTabs = useMemo(() => {
     const tabs: Array<{ value: DiningView; label: string; icon: typeof Mic }> = [];
 
-    if (branding.voiceEnabled) {
-      tabs.push({ value: 'assistant', label: 'Asistente', icon: Mic });
-    }
-
-    tabs.push({ value: 'menu', label: 'Carta', icon: LayoutGrid });
-
     if (debugEnabled) {
       tabs.push({ value: 'debug', label: 'Debug', icon: TerminalSquare });
     }
 
     return tabs;
-  }, [branding.voiceEnabled, debugEnabled]);
+  }, [debugEnabled]);
 
   return (
     <div className="page-container py-5">
@@ -527,32 +520,34 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="space-y-6">
-          {activeView === 'assistant' && branding.voiceEnabled ? (
-            <AssistantPanel
-              assistantName={branding.assistantName}
-              disabled={!menuReady}
-              disabledMessage={menuLoading ? 'Cargando carta para la sesion de voz...' : menuError || 'No hay carta disponible.'}
-              lastAssistantMessage={voiceSession.lastAssistantMessage}
-              latestError={latestVoiceError}
-              logs={voiceSession.logs}
-              status={voiceSession.status}
-              isMuted={voiceSession.isMuted}
-              onConnect={voiceSession.connect}
-              onDisconnect={voiceSession.disconnect}
-              onToggleMute={() => voiceSession.setIsMuted((previousState) => !previousState)}
-              showDebug={debugEnabled}
-              volumeLevel={voiceSession.volumeLevel}
-            />
-          ) : null}
+          {activeView === 'main' ? (
+            <>
+              {branding.voiceEnabled ? (
+                <AssistantPanel
+                  assistantName={branding.assistantName}
+                  disabled={!menuReady}
+                  disabledMessage={menuLoading ? 'Cargando carta para la sesion de voz...' : menuError || 'No hay carta disponible.'}
+                  lastAssistantMessage={voiceSession.lastAssistantMessage}
+                  latestError={latestVoiceError}
+                  logs={voiceSession.logs}
+                  status={voiceSession.status}
+                  isMuted={voiceSession.isMuted}
+                  onConnect={voiceSession.connect}
+                  onDisconnect={voiceSession.disconnect}
+                  onToggleMute={() => voiceSession.setIsMuted((previousState) => !previousState)}
+                  showDebug={debugEnabled}
+                  volumeLevel={voiceSession.volumeLevel}
+                />
+              ) : null}
 
-          {activeView === 'menu' ? (
-            <MenuPanel
-              menu={menu}
-              menuError={menuError}
-              menuLoading={menuLoading}
-              onAddItem={handleAddToCart}
-              onRetry={refreshMenu}
-            />
+              <MenuPanel
+                menu={menu}
+                menuError={menuError}
+                menuLoading={menuLoading}
+                onAddItem={handleAddToCart}
+                onRetry={refreshMenu}
+              />
+            </>
           ) : null}
 
           {activeView === 'debug' && debugEnabled ? <DebugPanel logs={voiceSession.logs} /> : null}
