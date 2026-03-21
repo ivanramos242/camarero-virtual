@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Leaf, Plus, Wheat } from 'lucide-react';
 
 import type { MenuItem } from '../types';
@@ -10,6 +10,7 @@ interface MenuExplorerProps {
 
 const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
   const [activeCategory, setActiveCategory] = useState('Todos');
+  const categoryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const categories = useMemo(() => ['Todos', ...Array.from(new Set(menu.map((item) => item.category)))], [menu]);
 
@@ -35,6 +36,17 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
     return null;
   };
 
+  useEffect(() => {
+    const activeButton = categoryRefs.current[activeCategory];
+    if (!activeButton) return;
+
+    activeButton.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'center',
+    });
+  }, [activeCategory]);
+
   return (
     <section className="panel min-w-0 overflow-hidden">
       <div className="border-b border-stone-200 px-5 py-4">
@@ -46,6 +58,9 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
         {categories.map((category) => (
           <button
             key={category}
+            ref={(element) => {
+              categoryRefs.current[category] = element;
+            }}
             type="button"
             onClick={() => setActiveCategory(category)}
             className={`whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition ${
