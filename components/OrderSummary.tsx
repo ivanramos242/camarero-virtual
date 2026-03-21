@@ -17,6 +17,7 @@ interface OrderSummaryProps {
   isSending?: boolean;
   errorMessage?: string | null;
   successMessage?: string | null;
+  className?: string;
 }
 
 const OrderSummary: React.FC<OrderSummaryProps> = ({
@@ -33,11 +34,12 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   isSending = false,
   errorMessage,
   successMessage,
+  className,
 }) => {
   const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
 
   return (
-    <section className="panel sticky top-6 flex flex-col overflow-hidden">
+    <section className={`panel flex flex-col overflow-hidden lg:sticky lg:top-6 ${className ?? ''}`}>
       <div className="border-b border-stone-200 px-5 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -68,7 +70,7 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
 
         <label className="block space-y-2">
           <span className="text-sm font-medium text-stone-700">Comensales</span>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
             {dinersOptions.map((option) => {
               const isSelected = dinersCount === option;
               const label = option === 7 ? '7+' : String(option);
@@ -79,7 +81,7 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
                   type="button"
                   onClick={() => onDinersChange(option)}
                   disabled={isSending}
-                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
                     isSelected
                       ? 'border-stone-900 bg-stone-900 text-white'
                       : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:bg-stone-50'
@@ -93,7 +95,7 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
         </label>
       </div>
 
-      <div className="scrollbar-thin max-h-[340px] space-y-3 overflow-y-auto px-5 py-4">
+      <div className="scrollbar-thin max-h-[42vh] space-y-3 overflow-y-auto px-5 py-4 lg:max-h-[340px]">
         {items.length === 0 ? (
           <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-center text-sm text-stone-500">
             Todavía no hay platos en la comanda. Puedes pedir por voz o añadir desde la carta.
@@ -111,24 +113,24 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
                 </span>
               </div>
 
-              <div className="mt-3 flex items-center justify-between">
+              <div className="mt-3 flex items-center justify-between gap-3">
                 <div className="inline-flex items-center rounded-lg border border-stone-300">
                   <button
                     type="button"
                     onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
                     disabled={isSending}
-                    className="px-2 py-1 text-stone-600 transition hover:bg-stone-100"
+                    className="px-3 py-2 text-stone-600 transition hover:bg-stone-100"
                   >
                     <Minus size={14} />
                   </button>
-                  <span className="min-w-10 border-x border-stone-300 px-3 py-1 text-center text-sm font-medium text-stone-900">
+                  <span className="min-w-10 border-x border-stone-300 px-3 py-2 text-center text-sm font-medium text-stone-900">
                     {item.quantity}
                   </span>
                   <button
                     type="button"
                     onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
                     disabled={isSending}
-                    className="px-2 py-1 text-stone-600 transition hover:bg-stone-100"
+                    className="px-3 py-2 text-stone-600 transition hover:bg-stone-100"
                   >
                     <Plus size={14} />
                   </button>

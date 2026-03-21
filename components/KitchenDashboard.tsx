@@ -81,9 +81,9 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   }, [orders]);
 
   return (
-    <div className="page-container py-6">
+    <div className="page-container py-4 sm:py-6">
       <section className="panel overflow-hidden">
-        <header className="flex flex-col gap-4 border-b border-stone-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+        <header className="flex flex-col gap-4 border-b border-stone-200 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone-900 text-white">
@@ -96,7 +96,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={onRefresh}
@@ -116,7 +116,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
           </div>
         </header>
 
-        <div className="grid gap-4 border-b border-stone-200 bg-stone-50 px-6 py-4 md:grid-cols-3">
+        <div className="grid gap-4 border-b border-stone-200 bg-stone-50 px-4 py-4 sm:px-6 md:grid-cols-3">
           <div>
             <p className="text-sm text-stone-500">Pedidos activos</p>
             <p className="mt-1 text-2xl font-semibold text-stone-900">{stats.activeOrders}</p>
@@ -131,7 +131,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 px-6 py-4">
+        <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
             {filterOptions.map((option) => (
               <button
@@ -150,7 +150,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
           {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
         </div>
 
-        <div className="space-y-4 p-6">
+        <div className="space-y-4 p-4 sm:p-6">
           {isLoading ? (
             <div className="flex items-center gap-2 text-sm text-stone-500">
               <Loader2 size={16} className="animate-spin" />
@@ -169,7 +169,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             const isUpdating = pendingOrderIds.includes(order.id);
 
             return (
-              <article key={order.id} className="rounded-xl border border-stone-200 bg-white p-5">
+              <article key={order.id} className="rounded-xl border border-stone-200 bg-white p-4 sm:p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -188,19 +188,19 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="w-full sm:w-auto">
                     {nextAction ? (
                       <button
                         type="button"
                         onClick={() => onUpdateStatus(order.id, nextAction.status)}
                         disabled={isUpdating}
-                        className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
                       >
                         {isUpdating ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
                         {nextAction.label}
                       </button>
                     ) : (
-                      <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      <span className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-50 px-3 py-3 text-sm text-emerald-700">
                         <PackageCheck size={16} />
                         Pedido completado
                       </span>

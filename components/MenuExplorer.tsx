@@ -42,13 +42,13 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
         <p className="mt-1 text-sm text-stone-500">Añade platos manualmente si prefieres no usar la voz.</p>
       </div>
 
-      <div className="scrollbar-thin flex gap-2 overflow-x-auto border-b border-stone-200 px-5 py-3">
+      <div className="scrollbar-thin flex gap-2 overflow-x-auto border-b border-stone-200 px-4 py-3 sm:px-5">
         {categories.map((category) => (
           <button
             key={category}
             type="button"
             onClick={() => setActiveCategory(category)}
-            className={`rounded-lg px-3 py-2 text-sm transition ${
+            className={`whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition ${
               activeCategory === category ? 'bg-stone-900 text-white' : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
             }`}
           >
@@ -57,20 +57,20 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
         ))}
       </div>
 
-      <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-3">
         {filteredMenu.map((item) => (
           <article key={item.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
             {item.imageUrl ? (
-              <img src={item.imageUrl} alt={item.name} className="h-40 w-full object-cover" />
+              <img src={item.imageUrl} alt={item.name} className="h-36 w-full object-cover sm:h-40" />
             ) : (
-              <div className="flex h-40 items-center justify-center bg-stone-100 text-sm text-stone-400">{item.category}</div>
+              <div className="flex h-36 items-center justify-center bg-stone-100 px-4 text-center text-sm text-stone-400 sm:h-40">{item.category}</div>
             )}
 
             <div className="space-y-4 p-4">
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-base font-semibold text-stone-900">{item.name}</h3>
-                  <p className="mt-1 text-sm text-stone-500">{item.description}</p>
+                  <p className="mt-1 text-sm leading-6 text-stone-500">{item.description}</p>
                 </div>
                 <span className="shrink-0 text-sm font-medium text-stone-700">{item.price.toFixed(2)} €</span>
               </div>
@@ -97,7 +97,7 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
               <button
                 type="button"
                 onClick={() => onAddItem(item)}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
               >
                 <Plus size={16} />
                 Añadir al pedido

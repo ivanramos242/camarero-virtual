@@ -51,7 +51,7 @@ const OrderStatus: React.FC<OrderStatusProps> = ({ orders, tableNumber }) => {
         <p className="mt-1 text-sm text-stone-500">Aquí verás cómo avanza cada pedido confirmado.</p>
       </div>
 
-      <div className="scrollbar-thin max-h-[360px] space-y-3 overflow-y-auto px-5 py-4">
+      <div className="scrollbar-thin max-h-[320px] space-y-3 overflow-y-auto px-4 py-4 sm:px-5 lg:max-h-[360px]">
         {myOrders.map((order) => {
           const status = statusMap[order.status];
           const StatusIcon = status.icon;

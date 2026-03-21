@@ -425,6 +425,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const { tableNumber = '' } = useParams();
   const [searchParams] = useSearchParams();
   const [activeView, setActiveView] = useState<DiningView>('main');
+  const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState('Cliente');
   const [dinersCount, setDinersCount] = useState(1);
@@ -695,6 +696,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     () => cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0),
     [cartItems],
   );
+  const cartUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.quantity, 0), [cartItems]);
 
   const latestVoiceError = useMemo(() => {
     const latestError = [...voiceSession.logs].reverse().find((log) => log.role === 'error');
@@ -722,8 +724,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         onConfirm={handleSessionDetailsSubmit}
       />
 
-      <header className="panel mb-6 overflow-hidden">
-        <div className="flex flex-col gap-4 border-b border-stone-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+      <header className="panel mb-4 overflow-hidden sm:mb-6">
+        <div className="flex flex-col gap-4 border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <Link to="/" className="flex h-11 w-11 items-center justify-center rounded-lg bg-stone-900 text-white">
               <ChefHat size={18} />
@@ -756,7 +758,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </div>
 
         {(configError || menuError || ordersError) ? (
-          <div className="space-y-2 bg-amber-50 px-6 py-4 text-sm text-amber-900">
+          <div className="space-y-2 bg-amber-50 px-4 py-4 text-sm text-amber-900 sm:px-6">
             {configError ? <p>{configError}</p> : null}
             {menuError ? <p>{menuError}</p> : null}
             {ordersError ? <p>{ordersError}</p> : null}
@@ -793,13 +795,24 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
                 onAddItem={handleAddToCart}
                 onRetry={refreshMenu}
               />
+
+              {ordersLoading ? (
+                <section className="panel flex items-center gap-3 px-4 py-4 text-sm text-stone-500 sm:px-5 lg:hidden">
+                  <Loader2 size={16} className="animate-spin" />
+                  Cargando pedidos de la mesa...
+                </section>
+              ) : null}
+
+              <div className="lg:hidden">
+                <OrderStatus orders={orders} tableNumber={tableNumber} />
+              </div>
             </>
           ) : null}
 
           {activeView === 'debug' && debugEnabled ? <DebugPanel logs={voiceSession.logs} /> : null}
         </section>
 
-        <aside className="space-y-6">
+        <aside className="hidden space-y-6 lg:block">
           <OrderSummary
             items={cartItems}
             total={totalPrice}
@@ -841,6 +854,63 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           ) : null}
         </aside>
       </div>
+
+      <div className="h-24 lg:hidden" />
+
+      <button
+        type="button"
+        onClick={() => setIsCartOpen(true)}
+        className="fixed inset-x-4 bottom-4 z-40 inline-flex min-h-14 items-center justify-between rounded-xl bg-stone-900 px-4 py-3 text-left text-white shadow-lg shadow-stone-950/20 lg:hidden"
+      >
+        <span>
+          <span className="block text-xs text-stone-300">Pedido actual</span>
+          <span className="mt-1 block text-sm font-medium">{cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aun no has anadido platos'}</span>
+        </span>
+        <span className="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold">{totalPrice.toFixed(2)} EUR</span>
+      </button>
+
+      {isCartOpen ? (
+        <div className="fixed inset-0 z-50 bg-stone-950/40 lg:hidden" onClick={() => setIsCartOpen(false)}>
+          <div className="absolute inset-x-0 bottom-0 max-h-[88vh] rounded-t-3xl bg-[var(--bg)] px-3 pb-3 pt-3" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-stone-300" />
+            <div className="mb-3 flex items-center justify-between px-1">
+              <div>
+                <p className="text-sm font-semibold text-stone-900">Resumen del pedido</p>
+                <p className="text-xs text-stone-500">Revisa la comanda antes de enviarla.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCartOpen(false)}
+                className="rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-50"
+              >
+                Cerrar
+              </button>
+            </div>
+            <OrderSummary
+              items={cartItems}
+              total={totalPrice}
+              tableNumber={tableNumber}
+              dinersCount={dinersCount}
+              clientName={clientName}
+              onClientNameChange={handleClientNameChange}
+              onDinersChange={handleDinersChange}
+              onConfirm={() => {
+                void handleConfirmOrder(dinersCount, clientName).then((success) => {
+                  if (success) {
+                    setIsCartOpen(false);
+                  }
+                });
+              }}
+              onRemoveItem={handleRemoveItem}
+              onUpdateQuantity={handleUpdateQuantity}
+              isSending={isSending}
+              errorMessage={submitError}
+              successMessage={submitSuccess}
+              className="max-h-[calc(88vh-72px)]"
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -870,16 +940,16 @@ function SessionDetailsModal({
   const canContinue = clientName.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 px-4 py-6">
-      <div className="w-full max-w-md overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10">
-        <div className="border-b border-stone-200 px-6 py-5">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-3 sm:items-center sm:px-4 sm:py-6">
+      <div className="w-full max-w-md overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10 sm:rounded-xl">
+        <div className="border-b border-stone-200 px-5 py-5 sm:px-6">
           <h2 className="text-lg font-semibold text-stone-900">Nueva sesi&oacute;n</h2>
           <p className="mt-1 text-sm leading-6 text-stone-600">
             Antes de empezar, necesitamos el nombre del cliente y cu&aacute;ntos comensales hay en la mesa.
           </p>
         </div>
 
-        <div className="space-y-5 px-6 py-6">
+        <div className="space-y-5 px-5 py-5 sm:px-6 sm:py-6">
           <label className="block space-y-2">
             <span className="text-sm font-medium text-stone-700">Nombre</span>
             <input
@@ -899,7 +969,7 @@ function SessionDetailsModal({
 
           <div className="space-y-2">
             <span className="text-sm font-medium text-stone-700">Comensales</span>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-4">
               {dinersOptions.map((option) => {
                 const isSelected = dinersCount === option;
                 const label = option === 7 ? '7+' : String(option);
@@ -923,7 +993,7 @@ function SessionDetailsModal({
           </div>
         </div>
 
-        <div className="border-t border-stone-200 bg-stone-50 px-6 py-4">
+        <div className="border-t border-stone-200 bg-stone-50 px-5 py-4 sm:px-6">
           <button
             type="button"
             onClick={onConfirm}
@@ -971,8 +1041,8 @@ function AssistantPanel({
 }: AssistantPanelProps) {
   return (
     <section className="panel overflow-hidden">
-      <div className="border-b border-stone-200 px-6 py-5">
-        <div className="flex items-center justify-between gap-4">
+      <div className="border-b border-stone-200 px-4 py-5 sm:px-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-stone-900">{assistantName}</h2>
             <p className="mt-1 text-sm text-stone-500">Puedes pedir por voz, corregir platos y confirmar sin tocar la carta.</p>
@@ -994,8 +1064,8 @@ function AssistantPanel({
         </div>
       </div>
 
-      <div className="space-y-5 px-6 py-6">
-        <div className="panel-muted p-5">
+      <div className="space-y-5 px-4 py-5 sm:px-6 sm:py-6">
+        <div className="panel-muted p-4 sm:p-5">
           {status === 'connecting' ? (
             <div className="flex items-center gap-3 text-sm text-stone-600">
               <Loader2 size={16} className="animate-spin" />
@@ -1020,13 +1090,13 @@ function AssistantPanel({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
           {(status === 'disconnected' || status === 'error') ? (
             <button
               type="button"
               onClick={onConnect}
               disabled={disabled}
-              className="inline-flex items-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
             >
               <Mic size={16} />
               Iniciar voz
@@ -1038,7 +1108,7 @@ function AssistantPanel({
               <button
                 type="button"
                 onClick={onToggleMute}
-                className="inline-flex items-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
               >
                 {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
                 {isMuted ? 'Activar micro' : 'Silenciar'}
@@ -1047,7 +1117,7 @@ function AssistantPanel({
               <button
                 type="button"
                 onClick={onDisconnect}
-                className="inline-flex items-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
               >
                 Cerrar sesion
               </button>

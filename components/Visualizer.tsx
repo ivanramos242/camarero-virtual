@@ -11,7 +11,7 @@ const Visualizer: React.FC<VisualizerProps> = ({ isActive, volume }) => {
   const intensity = isActive ? Math.max(0.2, Math.min(volume * 3.2, 1)) : 0.08;
 
   return (
-    <div className="flex h-24 items-end justify-center gap-2">
+    <div className="flex h-20 items-end justify-center gap-2 sm:h-24">
       {bars.map((bar, index) => {
         const height = `${24 + 42 * bar * intensity}px`;
         return (

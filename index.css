@@ -36,6 +36,8 @@ body {
     -apple-system,
     BlinkMacSystemFont,
     sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
@@ -102,6 +104,28 @@ button:disabled {
 .page-container {
   width: min(1280px, calc(100vw - 32px));
   margin: 0 auto;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+textarea,
+select,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 640px) {
+  .page-container {
+    width: min(100vw - 16px, 100%);
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 .status-dot {
