@@ -343,8 +343,8 @@ const bootstrap = async () => {
   await seedLegacyOrdersFromSheetIfNeeded();
   await getMenu();
 
-  app.listen(serverConfig.port, () => {
-    console.log(`Servidor escuchando en http://127.0.0.1:${serverConfig.port}`);
+  app.listen(serverConfig.port, serverConfig.host, () => {
+    console.log(`Servidor escuchando en http://${serverConfig.host}:${serverConfig.port}`);
   });
 };
 

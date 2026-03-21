@@ -24,6 +24,7 @@ Copia `.env.example` a `.env` y rellena lo necesario.
 Variables importantes:
 
 - `PORT`: puerto del backend.
+- `HOST`: host de escucha del backend. En servidor debe ser `0.0.0.0`.
 - `KITCHEN_PASSWORD`: contrasena del personal.
 - `GEMINI_API_KEY`: clave del servidor para sesiones de voz.
 - `GEMINI_LIVE_MODEL`: modelo Live que se quiere usar.
@@ -67,6 +68,12 @@ npm run start
 ```
 
 En produccion el backend sirve tambien el frontend compilado desde `dist/`.
+
+Para contenedor/EasyPanel:
+
+- El contenedor escucha por defecto en `0.0.0.0:3000`.
+- Si EasyPanel inyecta otro `PORT`, la app lo respetara automaticamente.
+- Configura el puerto interno del servicio en EasyPanel a `3000` si no estas usando una variable `PORT` propia.
 
 ## Notas operativas
 
