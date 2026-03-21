@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Link,
   Navigate,
@@ -1096,90 +1096,114 @@ function AssistantPanel({
   showDebug,
   volumeLevel,
 }: AssistantPanelProps) {
+  const statusLabel =
+    status === 'connected' ? 'Escuchando' : status === 'connecting' ? 'Conectando' : status === 'error' ? 'Error' : 'En espera';
+  const statusTone =
+    status === 'connected'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      : status === 'connecting'
+        ? 'bg-amber-50 text-amber-800 ring-amber-200'
+        : status === 'error'
+          ? 'bg-red-50 text-red-700 ring-red-200'
+          : 'bg-stone-100 text-stone-700 ring-stone-200';
+
   return (
     <section className="panel overflow-hidden">
-      <div className="border-b border-stone-200 px-4 py-5 sm:px-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-stone-900">{assistantName}</h2>
-            <p className="mt-1 text-sm text-stone-500">Puedes pedir por voz, corregir platos y confirmar sin tocar la carta.</p>
+      <div className="border-b border-stone-200 bg-[radial-gradient(circle_at_top,rgba(161,98,7,0.14),transparent_42%),linear-gradient(180deg,#fffdf8_0%,#ffffff_100%)] px-4 py-5 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-900 text-white shadow-sm">
+              {status === 'connected' ? <Mic size={18} /> : status === 'connecting' ? <Loader2 size={18} className="animate-spin" /> : <MicOff size={18} />}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-semibold text-stone-900">{assistantName}</h2>
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${statusTone}`}>{statusLabel}</span>
+              </div>
+              <p className="mt-1 text-sm text-stone-500">Pide hablando, corrige al momento y confirma sin salir de esta pantalla.</p>
+            </div>
           </div>
-
-          <span
-            className={`rounded-md px-2 py-1 text-xs font-medium ${
-              status === 'connected'
-                ? 'bg-emerald-50 text-emerald-700'
-                : status === 'connecting'
-                  ? 'bg-amber-50 text-amber-800'
-                  : status === 'error'
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-stone-100 text-stone-700'
-            }`}
-          >
-            {status === 'connected' ? 'Activo' : status === 'connecting' ? 'Conectando' : status === 'error' ? 'Error' : 'En espera'}
-          </span>
         </div>
       </div>
 
       <div className="space-y-5 px-4 py-5 sm:px-6 sm:py-6">
-        <div className="panel-muted p-4 sm:p-5">
+        <div className="overflow-hidden rounded-[24px] border border-stone-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-4 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] sm:p-5">
           {status === 'connecting' ? (
-            <div className="flex items-center gap-3 text-sm text-stone-600">
-              <Loader2 size={16} className="animate-spin" />
-              Abriendo sesion de voz...
+            <div className="space-y-4">
+              <div className="flex h-28 items-center justify-center rounded-[20px] border border-amber-200 bg-amber-50/70">
+                <div className="inline-flex items-center gap-3 text-sm font-medium text-amber-900">
+                  <Loader2 size={18} className="animate-spin" />
+                  Abriendo sesion de voz...
+                </div>
+              </div>
+              <p className="text-sm text-stone-500">Preparando micro, contexto de carta y acciones disponibles.</p>
             </div>
           ) : status === 'connected' ? (
             <div className="space-y-4">
-              <Visualizer isActive={!isMuted} volume={volumeLevel} />
+              <div className="rounded-[20px] border border-emerald-100 bg-white p-4 shadow-sm">
+                <Visualizer isActive={!isMuted} volume={volumeLevel} />
+              </div>
               <div className="space-y-2 text-sm text-stone-600">
-                <p>Sesion lista. Habla con naturalidad y usa la carta manual si quieres ajustar algo rapido.</p>
+                <p>Sesion lista. Habla con naturalidad y ajusta la carta manualmente solo si te resulta mas rapido.</p>
                 {lastAssistantMessage ? (
-                  <p className="rounded-lg border border-stone-200 bg-white px-4 py-3 text-stone-800">{lastAssistantMessage}</p>
+                  <p className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-stone-800 shadow-sm">{lastAssistantMessage}</p>
                 ) : null}
               </div>
             </div>
           ) : (
-            <div className="space-y-3 text-sm text-stone-600">
-              <p>La carta y la cocina siguen funcionando aunque no uses voz.</p>
-              {disabled ? <p className="rounded-lg bg-amber-50 px-4 py-3 text-amber-900">{disabledMessage}</p> : null}
-              {latestError ? <p className="rounded-lg bg-red-50 px-4 py-3 text-red-700">{latestError}</p> : null}
+            <div className="space-y-4 text-sm text-stone-600">
+              <div className="rounded-[20px] border border-dashed border-stone-300 bg-white/80 px-4 py-4">
+                <p className="text-sm font-medium text-stone-900">Habla cuando quieras</p>
+                <p className="mt-1 text-sm text-stone-500">La carta y la cocina siguen funcionando aunque no uses voz.</p>
+              </div>
+              {disabled ? <p className="rounded-2xl bg-amber-50 px-4 py-3 text-amber-900">{disabledMessage}</p> : null}
+              {latestError ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-red-700">{latestError}</p> : null}
             </div>
           )}
-        </div>
 
-        <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
-          {(status === 'disconnected' || status === 'error') ? (
-            <button
-              type="button"
-              onClick={onConnect}
-              disabled={disabled}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
-            >
-              <Mic size={16} />
-              Iniciar voz
-            </button>
-          ) : null}
-
-          {status === 'connected' ? (
-            <>
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+            {(status === 'disconnected' || status === 'error') ? (
               <button
                 type="button"
-                onClick={onToggleMute}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                onClick={onConnect}
+                disabled={disabled}
+                className="group relative inline-flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[22px] bg-stone-900 px-5 py-4 text-left text-white transition hover:bg-black disabled:bg-stone-300"
               >
-                {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-                {isMuted ? 'Activar micro' : 'Silenciar'}
+                <span className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.18),transparent_62%)] opacity-80" />
+                <span className="relative flex min-w-0 items-center gap-4">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15">
+                    <Mic size={18} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">Hablar con {assistantName}</span>
+                    <span className="mt-0.5 block text-xs text-stone-300">Toca y empieza a pedir por voz</span>
+                  </span>
+                </span>
+                <span className="relative text-xs font-semibold uppercase tracking-[0.18em] text-stone-300">Abrir</span>
               </button>
+            ) : null}
 
-              <button
-                type="button"
-                onClick={onDisconnect}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
-              >
-                Cerrar sesion
-              </button>
-            </>
-          ) : null}
+            {status === 'connected' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={onToggleMute}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                >
+                  {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+                  {isMuted ? 'Activar micro' : 'Silenciar'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onDisconnect}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                >
+                  Cerrar sesion
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
 
         {showDebug && logs.length > 0 ? (
@@ -1317,3 +1341,4 @@ function ProtectedAdminRoute({
 }
 
 export default App;
+
