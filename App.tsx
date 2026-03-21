@@ -20,6 +20,7 @@ import {
   Shield,
   Store,
   TerminalSquare,
+  X,
 } from 'lucide-react';
 
 import AdminDashboard from './components/AdminDashboard';
@@ -190,6 +191,7 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
   const [searchParams] = useSearchParams();
   const legacyTable = searchParams.get('mesa')?.trim();
   const [tableNumber, setTableNumber] = useState(legacyTable || '1');
+  const [isAccessPanelOpen, setIsAccessPanelOpen] = useState(false);
 
   if (legacyTable) {
     return <Navigate replace to={`/mesa/${encodeURIComponent(legacyTable)}`} />;
@@ -202,9 +204,9 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
   };
 
   return (
-    <main className="page-container flex min-h-screen items-center py-10">
-      <div className="grid w-full gap-6 lg:grid-cols-[1.25fr_0.95fr]">
-        <section className="panel overflow-hidden">
+    <>
+      <main className="page-container flex min-h-screen items-center justify-center py-10">
+        <section className="panel w-full max-w-xl overflow-hidden">
           <div className="border-b border-stone-200 px-6 py-5">
             <div className="flex items-center gap-3">
               <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-stone-900 text-white">
@@ -212,15 +214,14 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
               </span>
               <div>
                 <p className="text-sm font-medium text-stone-500">{branding.restaurantName}</p>
-                <h1 className="text-xl font-semibold text-stone-900">{branding.tagline}</h1>
+                <h1 className="text-xl font-semibold text-stone-900">Abrir experiencia de mesa</h1>
               </div>
             </div>
           </div>
 
           <div className="space-y-5 px-6 py-6">
-            <p className="max-w-2xl text-sm leading-6 text-stone-600">
-              Esta version ya funciona con backend propio para pedidos, estado de cocina y sesiones protegidas. El acceso
-              mas comodo para clientes es entrar por una URL directa de mesa o desde un QR.
+            <p className="text-sm leading-6 text-stone-600">
+              Introduce el numero de mesa para abrir la experiencia del cliente y empezar a pedir.
             </p>
 
             {configError ? (
@@ -229,7 +230,7 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
               </div>
             ) : null}
 
-            <form onSubmit={handleSubmit} className="panel-muted max-w-md space-y-4 p-4">
+            <form onSubmit={handleSubmit} className="panel-muted space-y-4 p-4">
               <div className="space-y-2">
                 <label htmlFor="table-number" className="text-sm font-medium text-stone-700">
                   Numero de mesa
@@ -253,55 +254,109 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
             </form>
           </div>
         </section>
+      </main>
 
-        <section className="space-y-4">
-          <article className="panel p-5">
+      <button
+        type="button"
+        onClick={() => setIsAccessPanelOpen(true)}
+        className="fixed bottom-5 right-5 inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-800 shadow-sm transition hover:bg-stone-50"
+      >
+        <Shield size={16} />
+        Administracion
+      </button>
+
+      <AccessPanelModal
+        authenticated={authenticated}
+        adminAuthenticated={adminAuthenticated}
+        branding={branding}
+        isOpen={isAccessPanelOpen}
+        onClose={() => setIsAccessPanelOpen(false)}
+      />
+    </>
+  );
+}
+
+interface AccessPanelModalProps {
+  authenticated: boolean;
+  adminAuthenticated: boolean;
+  branding: AppBranding;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+function AccessPanelModal({ authenticated, adminAuthenticated, branding, isOpen, onClose }: AccessPanelModalProps) {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-end bg-stone-950/35 p-4 sm:p-5" onClick={onClose}>
+      <section
+        className="panel w-full max-w-md overflow-hidden"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-stone-500">{branding.restaurantName}</p>
+            <h2 className="text-base font-semibold text-stone-900">Accesos internos</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 text-stone-700 transition hover:bg-stone-50"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-5 px-5 py-5">
+          <article className="space-y-3">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone-100 text-stone-700">
                 <ChefHat size={18} />
               </span>
               <div>
-                <h2 className="text-base font-semibold text-stone-900">Acceso cocina</h2>
+                <h3 className="text-base font-semibold text-stone-900">Acceso cocina</h3>
                 <p className="text-sm text-stone-500">Panel protegido con sesion de personal.</p>
               </div>
             </div>
 
-            <div className="mt-5">
-              <Link
-                to={authenticated ? '/kitchen' : '/kitchen/login'}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
-              >
-                <Shield size={16} />
-                {authenticated ? 'Entrar al panel de cocina' : 'Ir al login de cocina'}
-              </Link>
-            </div>
+            <Link
+              to={authenticated ? '/kitchen' : '/kitchen/login'}
+              onClick={onClose}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
+            >
+              <Shield size={16} />
+              Ir al login de cocina
+            </Link>
           </article>
 
-          <article className="panel p-5">
+          <article className="space-y-3 border-t border-stone-200 pt-5">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone-100 text-stone-700">
                 <ClipboardList size={18} />
               </span>
               <div>
-                <h2 className="text-base font-semibold text-stone-900">Administracion</h2>
+                <h3 className="text-base font-semibold text-stone-900">Administracion</h3>
                 <p className="text-sm text-stone-500">Gestiona carta y revisa pedidos en tiempo real.</p>
               </div>
             </div>
 
-            <div className="mt-5">
-              <Link
-                to={adminAuthenticated ? '/admin' : '/admin/login'}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
-              >
-                <ClipboardList size={16} />
-                {adminAuthenticated ? 'Entrar a administracion' : 'Ir al login de administracion'}
-              </Link>
-            </div>
+            <Link
+              to={adminAuthenticated ? '/admin' : '/admin/login'}
+              onClick={onClose}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
+            >
+              <ClipboardList size={16} />
+              Entrar a administracion
+            </Link>
           </article>
 
-          <article className="panel p-5">
-            <h2 className="text-base font-semibold text-stone-900">Estado del sistema</h2>
-            <div className="mt-4 space-y-3 text-sm text-stone-600">
+          <article className="space-y-3 border-t border-stone-200 pt-5">
+            <h3 className="text-base font-semibold text-stone-900">Estado del sistema</h3>
+            <div className="space-y-3 text-sm text-stone-600">
               <div className="flex items-start justify-between gap-3">
                 <span>Pedidos y estados</span>
                 <span className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">Backend propio</span>
@@ -322,9 +377,9 @@ function HomePage({ authenticated, adminAuthenticated, branding, configError }: 
               </div>
             </div>
           </article>
-        </section>
-      </div>
-    </main>
+        </div>
+      </section>
+    </div>
   );
 }
 
