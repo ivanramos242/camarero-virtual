@@ -284,40 +284,38 @@ app.post('/api/session/openai', express.text({ type: ['application/sdp', 'text/p
     return;
   }
 
-  const sdpOffer = typeof request.body === 'string' ? request.body.trim() : '';
-  if (!sdpOffer) {
+  const sdpOffer = typeof request.body === 'string' ? request.body : '';
+  if (!sdpOffer.trim()) {
     response.status(400).send('Falta la oferta SDP.');
     return;
   }
 
   try {
-    const payload = new FormData();
-    payload.append('sdp', sdpOffer);
-    payload.append(
-      'session',
-      JSON.stringify({
-        type: 'realtime',
-        model: serverConfig.openAiRealtimeModel,
-        voice: serverConfig.openAiVoice,
-      }),
-    );
-
     const openAiResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${serverConfig.openAiApiKey}`,
+        'Content-Type': 'application/sdp',
       },
-      body: payload,
+      body: sdpOffer,
     });
 
     const answerSdp = await openAiResponse.text();
+    const requestId = openAiResponse.headers.get('x-request-id');
 
     if (!openAiResponse.ok) {
-      console.error('[voice] OpenAI realtime ha fallado:', answerSdp);
+      console.error('[voice] OpenAI realtime ha fallado:', {
+        status: openAiResponse.status,
+        requestId,
+        body: answerSdp,
+      });
       response.status(openAiResponse.status).send(answerSdp || 'No se pudo abrir la sesion OpenAI.');
       return;
     }
 
+    if (requestId) {
+      response.setHeader('X-OpenAI-Request-Id', requestId);
+    }
     response.setHeader('Content-Type', 'application/sdp');
     response.send(answerSdp);
   } catch (error) {
