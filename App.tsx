@@ -1125,7 +1125,7 @@ function AssistantPanel({
         </div>
       </div>
 
-      <div className="space-y-4 px-4 py-5 sm:px-6 sm:py-6">
+      <div className="space-y-4 px-4 pb-5 pt-0 sm:px-6 sm:pb-6 sm:pt-0">
         <div className="space-y-4">
           {status === 'connecting' ? (
             <div className="space-y-4">
