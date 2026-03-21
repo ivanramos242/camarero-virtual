@@ -1,3 +1,5 @@
+import { ZodError } from 'zod';
+
 import type {
   CreateMenuItemRequest,
   MenuItem,
@@ -352,6 +354,10 @@ export async function reorderMenu(input: ReorderMenuRequest) {
 export function toMenuServiceError(error: unknown) {
   if (error instanceof MenuServiceError) {
     return error;
+  }
+
+  if (error instanceof ZodError) {
+    return new MenuServiceError(error.issues[0]?.message || 'Los datos de la carta no son validos.', 400);
   }
 
   return new MenuServiceError('Se produjo un error inesperado con la carta.', 500);

@@ -67,6 +67,13 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const menuImageUrlSchema = z.union([
+  z.string().trim().url(),
+  z.string().trim().startsWith('/uploads/'),
+  z.literal(''),
+  z.null(),
+]);
+
 const menuItemSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(280).optional().default(''),
@@ -77,7 +84,7 @@ const menuItemSchema = z.object({
   dietary: z.array(z.string().trim().min(1).max(40)).optional(),
   available: z.coerce.boolean().optional(),
   ingredients: z.array(z.string().trim().min(1).max(80)).optional(),
-  imageUrl: z.union([z.string().trim().url(), z.literal(''), z.null()]).optional(),
+  imageUrl: menuImageUrlSchema.optional(),
 });
 
 const menuItemUpdateSchema = menuItemSchema.partial();
