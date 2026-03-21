@@ -785,8 +785,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
               <ChefHat size={18} />
             </Link>
             <div>
-              <p className="text-sm text-stone-500">{branding.restaurantName}</p>
-              <h1 className="text-lg font-semibold text-stone-900">Mesa {tableNumber}</h1>
+              <h1 className="text-lg font-semibold text-stone-900">{branding.assistantName} - Mesa {tableNumber}</h1>
             </div>
           </div>
 
@@ -1152,10 +1151,6 @@ function AssistantPanel({
             </div>
           ) : (
             <div className="space-y-4 text-sm text-stone-600">
-              <div className="rounded-[20px] border border-dashed border-stone-300 bg-white/80 px-4 py-4">
-                <p className="text-sm font-medium text-stone-900">Habla cuando quieras</p>
-                <p className="mt-1 text-sm text-stone-500">La carta y la cocina siguen funcionando aunque no uses voz.</p>
-              </div>
               {disabled ? <p className="rounded-2xl bg-amber-50 px-4 py-3 text-amber-900">{disabledMessage}</p> : null}
               {latestError ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-red-700">{latestError}</p> : null}
             </div>
