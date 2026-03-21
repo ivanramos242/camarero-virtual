@@ -1126,7 +1126,7 @@ function AssistantPanel({
       </div>
 
       <div className="space-y-5 px-4 py-5 sm:px-6 sm:py-6">
-        <div className="overflow-hidden rounded-[24px] border border-stone-200 bg-[linear-gradient(180deg,#ffffff_0%,#fafaf9_100%)] p-4 shadow-[0_1px_0_rgba(255,255,255,0.8)_inset] sm:p-5">
+        <div className="space-y-4">
           {status === 'connecting' ? (
             <div className="space-y-4">
               <div className="flex h-28 items-center justify-center rounded-[20px] border border-amber-200 bg-amber-50/70">
@@ -1156,7 +1156,7 @@ function AssistantPanel({
             </div>
           )}
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
             {(status === 'disconnected' || status === 'error') ? (
               <button
                 type="button"
