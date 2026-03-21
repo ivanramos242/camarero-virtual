@@ -24,8 +24,8 @@ const toPort = (rawValue: string | undefined, fallback: number) => {
 };
 
 export const serverConfig = {
-  host: process.env.HOST?.trim() || '0.0.0.0',
   isProduction: process.env.NODE_ENV === 'production',
+  host: '0.0.0.0',
   port: toPort(process.env.PORT, process.env.NODE_ENV === 'production' ? 3000 : 8787),
   sessionCookieName: 'ramiro_kitchen_session',
   sessionDurationMs: 1000 * 60 * 60 * 12,
