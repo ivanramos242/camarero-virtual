@@ -15,6 +15,8 @@ App React + Vite para cliente y panel de cocina, con backend Express dentro del 
 - `/mesa/:tableNumber`: experiencia cliente.
 - `/kitchen/login`: login de cocina.
 - `/kitchen`: panel protegido de cocina.
+- `/admin/login`: login de administracion.
+- `/admin`: panel protegido para carta y revision operativa.
 - `/api/*`: API del backend.
 
 ## Variables de entorno
@@ -23,6 +25,7 @@ Copia `.env.example` a `.env` y rellena lo necesario.
 
 Variables importantes:
 - `KITCHEN_PASSWORD`: contrasena del personal.
+- `ADMIN_PASSWORD`: contrasena del panel de administracion.
 - `GEMINI_API_KEY`: clave del servidor para sesiones de voz.
 - `GEMINI_LIVE_MODEL`: modelo Live que se quiere usar.
 - `MENU_CSV_URL`: URL CSV publica de la carta.
@@ -79,4 +82,6 @@ Para contenedor/EasyPanel:
 - Los pedidos usan `crypto.randomUUID()` en servidor.
 - El cliente no vacia el carrito hasta que el backend confirma el pedido.
 - `/kitchen` requiere sesion por cookie `httpOnly`.
+- `/admin` requiere sesion propia por cookie `httpOnly`.
+- La carta editable vive ya en `data/store.json` y se actualiza en tiempo real por SSE.
 - La voz ya no expone la `GEMINI_API_KEY` en el bundle del navegador.

@@ -2,19 +2,26 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { MenuItem, PersistedOrder } from '../types.js';
+import type { MenuItem, MenuMetadata, PersistedOrder } from '../types.js';
 import { serverConfig } from './config.js';
 
 interface StoreData {
   orders: PersistedOrder[];
-  menuCache: MenuItem[];
-  lastMenuSyncAt: string | null;
+  menu: MenuItem[];
+  menuMetadata: MenuMetadata;
+  lastLegacyMenuImportAt: string | null;
+  menuCache?: MenuItem[];
+  lastMenuSyncAt?: string | null;
 }
 
 const createEmptyStore = (): StoreData => ({
   orders: [],
-  menuCache: [],
-  lastMenuSyncAt: null,
+  menu: [],
+  menuMetadata: {
+    lastUpdatedAt: null,
+    lastUpdatedBy: null,
+  },
+  lastLegacyMenuImportAt: null,
 });
 
 class AppStore extends EventEmitter {
@@ -33,8 +40,12 @@ class AppStore extends EventEmitter {
 
       return {
         orders: parsedContent.orders ?? [],
-        menuCache: parsedContent.menuCache ?? [],
-        lastMenuSyncAt: parsedContent.lastMenuSyncAt ?? null,
+        menu: parsedContent.menu ?? parsedContent.menuCache ?? [],
+        menuMetadata: {
+          lastUpdatedAt: parsedContent.menuMetadata?.lastUpdatedAt ?? parsedContent.lastMenuSyncAt ?? null,
+          lastUpdatedBy: parsedContent.menuMetadata?.lastUpdatedBy ?? ((parsedContent.menu ?? parsedContent.menuCache)?.length ? 'legacy_import' : null),
+        },
+        lastLegacyMenuImportAt: parsedContent.lastLegacyMenuImportAt ?? parsedContent.lastMenuSyncAt ?? null,
       };
     } catch {
       return createEmptyStore();
@@ -58,10 +69,21 @@ class AppStore extends EventEmitter {
     this.emit('orders.changed', orders);
   }
 
+  notifyMenuChanged(menu: MenuItem[]) {
+    this.emit('menu.changed', menu);
+  }
+
   subscribeToOrders(listener: (orders: PersistedOrder[]) => void) {
     this.on('orders.changed', listener);
     return () => {
       this.off('orders.changed', listener);
+    };
+  }
+
+  subscribeToMenu(listener: (menu: MenuItem[]) => void) {
+    this.on('menu.changed', listener);
+    return () => {
+      this.off('menu.changed', listener);
     };
   }
 

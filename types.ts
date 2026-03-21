@@ -8,11 +8,17 @@ export interface MenuItem {
   description: string;
   price: number;
   category: string;
+  sortOrder?: number;
   allergens: string[];
   dietary: string[];
   available: boolean;
   ingredients: string[];
   imageUrl?: string | null;
+}
+
+export interface MenuMetadata {
+  lastUpdatedAt: string | null;
+  lastUpdatedBy: 'system' | 'admin' | 'legacy_import' | null;
 }
 
 export interface CartItem {
@@ -103,10 +109,50 @@ export interface SessionStatusResponse {
   kitchenName: string;
 }
 
+export interface AdminSessionStatusResponse {
+  authenticated: boolean;
+  restaurantName: string;
+}
+
 export interface OrdersEventPayload {
   type: 'snapshot';
   orders: PersistedOrder[];
   tableNumber?: string;
+}
+
+export interface MenuEventPayload {
+  type: 'snapshot';
+  menu: MenuItem[];
+}
+
+export interface MenuItemInput {
+  name: string;
+  description?: string;
+  price: number;
+  category: string;
+  sortOrder?: number;
+  allergens?: string[];
+  dietary?: string[];
+  available?: boolean;
+  ingredients?: string[];
+  imageUrl?: string | null;
+}
+
+export interface CreateMenuItemRequest extends MenuItemInput {}
+
+export interface UpdateMenuItemRequest extends Partial<MenuItemInput> {}
+
+export interface UpdateMenuItemAvailabilityRequest {
+  available: boolean;
+}
+
+export interface ReorderMenuItem {
+  id: string;
+  sortOrder: number;
+}
+
+export interface ReorderMenuRequest {
+  items: ReorderMenuItem[];
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';

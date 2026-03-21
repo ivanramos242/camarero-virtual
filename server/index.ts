@@ -6,14 +6,36 @@ import cookieParser from 'cookie-parser';
 import express from 'express';
 import { z } from 'zod';
 
-import type { CreateOrderRequest, OrdersEventPayload, OrderStatus, SessionStatusResponse, SessionTokenResponse } from '../types.js';
+import type {
+  AdminSessionStatusResponse,
+  CreateMenuItemRequest,
+  CreateOrderRequest,
+  MenuEventPayload,
+  OrderStatus,
+  OrdersEventPayload,
+  ReorderMenuRequest,
+  SessionStatusResponse,
+  SessionTokenResponse,
+  UpdateMenuItemAvailabilityRequest,
+  UpdateMenuItemRequest,
+} from '../types.js';
 import { publicBranding, serverConfig } from './config.js';
-import { getMenu } from './menu.js';
+import {
+  createMenuItem,
+  deleteMenuItem,
+  getAdminMenu,
+  getMenu,
+  reorderMenu,
+  toMenuServiceError,
+  updateMenuItem,
+  updateMenuItemAvailability,
+} from './menu.js';
 import { createOrder, listOrders, seedLegacyOrdersFromSheetIfNeeded, toServiceError, updateOrderStatus } from './orders.js';
 import { appStore } from './store.js';
 
 const app = express();
 const kitchenSessions = new Map<string, number>();
+const adminSessions = new Map<string, number>();
 
 const orderStatusValues = ['pending', 'cooking', 'ready', 'served'] as const satisfies readonly OrderStatus[];
 
@@ -41,6 +63,34 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const menuItemSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(280).optional().default(''),
+  price: z.coerce.number().min(0).max(10_000),
+  category: z.string().trim().min(1).max(80),
+  sortOrder: z.coerce.number().int().min(0).optional(),
+  allergens: z.array(z.string().trim().min(1).max(40)).optional(),
+  dietary: z.array(z.string().trim().min(1).max(40)).optional(),
+  available: z.coerce.boolean().optional(),
+  ingredients: z.array(z.string().trim().min(1).max(80)).optional(),
+  imageUrl: z.union([z.string().trim().url(), z.literal(''), z.null()]).optional(),
+});
+
+const menuItemUpdateSchema = menuItemSchema.partial();
+
+const availabilitySchema = z.object({
+  available: z.coerce.boolean(),
+});
+
+const reorderMenuSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().trim().min(1),
+      sortOrder: z.coerce.number().int().min(0),
+    }),
+  ),
+});
+
 const safePasswordMatch = (providedPassword: string, expectedPassword: string) => {
   const expectedBuffer = Buffer.from(expectedPassword);
   const providedBuffer = Buffer.from(providedPassword);
@@ -54,27 +104,40 @@ const safePasswordMatch = (providedPassword: string, expectedPassword: string) =
 
 const getSessionIdFromCookies = (cookieValue: unknown) => (typeof cookieValue === 'string' ? cookieValue : undefined);
 
-const isKitchenAuthenticated = (sessionId: string | undefined) => {
+const isSessionAuthenticated = (sessions: Map<string, number>, sessionId: string | undefined) => {
   if (!sessionId) {
     return false;
   }
 
-  const expiresAt = kitchenSessions.get(sessionId);
+  const expiresAt = sessions.get(sessionId);
   if (!expiresAt) {
     return false;
   }
 
   if (Date.now() > expiresAt) {
-    kitchenSessions.delete(sessionId);
+    sessions.delete(sessionId);
     return false;
   }
 
   return true;
 };
 
+const isKitchenAuthenticated = (sessionId: string | undefined) => isSessionAuthenticated(kitchenSessions, sessionId);
+const isAdminAuthenticated = (sessionId: string | undefined) => isSessionAuthenticated(adminSessions, sessionId);
+
 const requireKitchenAuth: express.RequestHandler = (request, response, next) => {
   const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.sessionCookieName]);
   if (!isKitchenAuthenticated(sessionId)) {
+    response.status(401).json({ message: 'Acceso restringido.' });
+    return;
+  }
+
+  next();
+};
+
+const requireAdminAuth: express.RequestHandler = (request, response, next) => {
+  const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+  if (!isAdminAuthenticated(sessionId)) {
     response.status(401).json({ message: 'Acceso restringido.' });
     return;
   }
@@ -134,12 +197,56 @@ app.get('/api/menu', async (_request, response) => {
   response.json(menu);
 });
 
+app.get('/api/menu/events', async (request, response) => {
+  const scope = typeof request.query.scope === 'string' ? request.query.scope.trim() : 'public';
+  const wantsAdminScope = scope === 'admin';
+
+  if (wantsAdminScope) {
+    const adminSessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+    if (!isAdminAuthenticated(adminSessionId)) {
+      response.status(401).json({ message: 'Acceso restringido.' });
+      return;
+    }
+  }
+
+  response.setHeader('Content-Type', 'text/event-stream');
+  response.setHeader('Cache-Control', 'no-cache, no-transform');
+  response.setHeader('Connection', 'keep-alive');
+  response.flushHeaders();
+
+  const sendSnapshot = async () => {
+    const payload: MenuEventPayload = {
+      type: 'snapshot',
+      menu: wantsAdminScope ? await getAdminMenu() : await getMenu(),
+    };
+
+    response.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  await sendSnapshot();
+
+  const unsubscribe = appStore.subscribeToMenu(async () => {
+    await sendSnapshot();
+  });
+
+  const heartbeat = setInterval(() => {
+    response.write(': keep-alive\n\n');
+  }, serverConfig.sseHeartbeatMs);
+
+  request.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    response.end();
+  });
+});
+
 app.get('/api/orders', async (request, response) => {
   const tableNumber = typeof request.query.table === 'string' ? request.query.table.trim() : undefined;
 
   if (!tableNumber) {
     const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.sessionCookieName]);
-    if (!isKitchenAuthenticated(sessionId)) {
+    const adminSessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+    if (!isKitchenAuthenticated(sessionId) && !isAdminAuthenticated(adminSessionId)) {
       response.status(401).json({ message: 'Acceso restringido.' });
       return;
     }
@@ -152,8 +259,9 @@ app.get('/api/orders', async (request, response) => {
 app.get('/api/orders/events', async (request, response) => {
   const tableNumber = typeof request.query.table === 'string' ? request.query.table.trim() : undefined;
   const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.sessionCookieName]);
+  const adminSessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
 
-  if (!tableNumber && !isKitchenAuthenticated(sessionId)) {
+  if (!tableNumber && !isKitchenAuthenticated(sessionId) && !isAdminAuthenticated(adminSessionId)) {
     response.status(401).json({ message: 'Acceso restringido.' });
     return;
   }
@@ -252,6 +360,112 @@ app.post('/api/auth/logout', (request, response) => {
 
   response.clearCookie(serverConfig.sessionCookieName);
   response.status(204).end();
+});
+
+app.get('/api/admin/auth/session', (request, response) => {
+  const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+  const session: AdminSessionStatusResponse = {
+    authenticated: isAdminAuthenticated(sessionId),
+    restaurantName: publicBranding.restaurantName,
+  };
+
+  response.json(session);
+});
+
+app.post('/api/admin/auth/login', (request, response) => {
+  const { password } = loginSchema.parse(request.body);
+
+  if (!safePasswordMatch(password, serverConfig.adminPassword)) {
+    response.status(401).json({ message: 'Contrasena incorrecta.' });
+    return;
+  }
+
+  const sessionId = crypto.randomUUID();
+  adminSessions.set(sessionId, Date.now() + serverConfig.sessionDurationMs);
+
+  response.cookie(serverConfig.adminSessionCookieName, sessionId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: serverConfig.isProduction,
+    maxAge: serverConfig.sessionDurationMs,
+  });
+
+  response.status(204).end();
+});
+
+app.post('/api/admin/auth/logout', (request, response) => {
+  const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+  if (sessionId) {
+    adminSessions.delete(sessionId);
+  }
+
+  response.clearCookie(serverConfig.adminSessionCookieName);
+  response.status(204).end();
+});
+
+app.get('/api/admin/menu', requireAdminAuth, async (_request, response) => {
+  response.json(await getAdminMenu());
+});
+
+app.get('/api/admin/orders', requireAdminAuth, async (_request, response) => {
+  response.json(await listOrders());
+});
+
+app.post('/api/admin/menu/items', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = menuItemSchema.parse(request.body) as CreateMenuItemRequest;
+    const menu = await createMenuItem(payload);
+    response.status(201).json(menu);
+  } catch (error) {
+    const serviceError = toMenuServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.patch('/api/admin/menu/items/:itemId', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = menuItemUpdateSchema.parse(request.body) as UpdateMenuItemRequest;
+    const itemId = Array.isArray(request.params.itemId) ? request.params.itemId[0] : request.params.itemId;
+    const menu = await updateMenuItem(itemId, payload);
+    response.json(menu);
+  } catch (error) {
+    const serviceError = toMenuServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.patch('/api/admin/menu/items/:itemId/availability', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = availabilitySchema.parse(request.body) as UpdateMenuItemAvailabilityRequest;
+    const itemId = Array.isArray(request.params.itemId) ? request.params.itemId[0] : request.params.itemId;
+    const menu = await updateMenuItemAvailability(itemId, payload.available);
+    response.json(menu);
+  } catch (error) {
+    const serviceError = toMenuServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.delete('/api/admin/menu/items/:itemId', requireAdminAuth, async (request, response) => {
+  try {
+    const itemId = Array.isArray(request.params.itemId) ? request.params.itemId[0] : request.params.itemId;
+    const menu = await deleteMenuItem(itemId);
+    response.json(menu);
+  } catch (error) {
+    const serviceError = toMenuServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.post('/api/admin/menu/reorder', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = reorderMenuSchema.parse(request.body) as ReorderMenuRequest;
+    const menu = await reorderMenu(payload);
+    response.json(menu);
+  } catch (error) {
+    const serviceError = toMenuServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
 });
 
 app.post('/api/session/token', async (_request, response) => {

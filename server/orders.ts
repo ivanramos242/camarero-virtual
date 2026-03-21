@@ -10,7 +10,7 @@ import type {
 } from '../types.js';
 import { fetchCsvRows } from './csv.js';
 import { serverConfig } from './config.js';
-import { getMenu } from './menu.js';
+import { getAdminMenu, getMenu } from './menu.js';
 import { appStore } from './store.js';
 
 class ServiceError extends Error {
@@ -268,7 +268,7 @@ export async function listOrders(tableNumber?: string) {
 }
 
 export async function createOrder(input: CreateOrderRequest) {
-  const menu = await getMenu();
+  const menu = await getAdminMenu();
   const menuById = new Map(menu.map((item) => [item.id, item]));
 
   const items = input.items.map((itemInput) => {

@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom';
 import {
   AlertCircle,
+  ClipboardList,
   ChefHat,
   Loader2,
   Mic,
@@ -21,20 +22,35 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 
+import AdminDashboard from './components/AdminDashboard';
 import KitchenDashboard from './components/KitchenDashboard';
 import MenuExplorer from './components/MenuExplorer';
 import OrderStatus from './components/OrderStatus';
 import OrderSummary from './components/OrderSummary';
 import Visualizer from './components/Visualizer';
+import { useAdminSession } from './hooks/useAdminSession';
+import { useMenuFeed } from './hooks/useMenuFeed';
 import { useKitchenSession } from './hooks/useKitchenSession';
 import { useLiveSession } from './hooks/useLiveSession';
 import { useOrdersFeed } from './hooks/useOrdersFeed';
-import type { AppBranding, CartItem, MenuItem, OrderStatus as OrderState, PersistedOrder } from './types';
+import type {
+  AppBranding,
+  CartItem,
+  CreateMenuItemRequest,
+  MenuItem,
+  OrderStatus as OrderState,
+  PersistedOrder,
+  ReorderMenuRequest,
+} from './types';
 import {
+  createAdminMenuItemOnApi,
   createOrderOnApi,
   createVoiceSessionToken,
-  fetchMenuFromApi,
+  deleteAdminMenuItemOnApi,
   fetchPublicConfig,
+  reorderAdminMenuOnApi,
+  updateAdminMenuItemAvailabilityOnApi,
+  updateAdminMenuItemOnApi,
   updateOrderStatusOnApi,
 } from './utils/api';
 
@@ -70,11 +86,9 @@ function upsertOrder(orderList: PersistedOrder[], nextOrder: PersistedOrder) {
 function App() {
   const [branding, setBranding] = useState<AppBranding>(defaultBranding);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<MenuItem[]>([]);
-  const [menuLoading, setMenuLoading] = useState(true);
-  const [menuError, setMenuError] = useState<string | null>(null);
-
+  const { menu, isLoading: menuLoading, error: menuError, refresh: refreshMenu } = useMenuFeed();
   const kitchenSession = useKitchenSession();
+  const adminSession = useAdminSession();
 
   const loadConfig = useCallback(async () => {
     try {
@@ -86,30 +100,23 @@ function App() {
     }
   }, []);
 
-  const loadMenu = useCallback(async () => {
-    try {
-      setMenuLoading(true);
-      const items = await fetchMenuFromApi();
-      setMenu(items);
-      setMenuError(null);
-    } catch (requestError) {
-      setMenuError(requestError instanceof Error ? requestError.message : 'No se pudo cargar la carta.');
-    } finally {
-      setMenuLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     void loadConfig();
-    void loadMenu();
-  }, [loadConfig, loadMenu]);
+  }, [loadConfig]);
 
   return (
     <div className="app-shell">
       <Routes>
         <Route
           path="/"
-          element={<HomePage authenticated={kitchenSession.authenticated} branding={branding} configError={configError} />}
+          element={
+            <HomePage
+              authenticated={kitchenSession.authenticated}
+              adminAuthenticated={adminSession.authenticated}
+              branding={branding}
+              configError={configError}
+            />
+          }
         />
         <Route
           path="/mesa/:tableNumber"
@@ -120,7 +127,7 @@ function App() {
               menu={menu}
               menuError={menuError}
               menuLoading={menuLoading}
-              refreshMenu={loadMenu}
+              refreshMenu={refreshMenu}
             />
           }
         />
@@ -144,6 +151,26 @@ function App() {
             </ProtectedKitchenRoute>
           }
         />
+        <Route
+          path="/admin/login"
+          element={
+            <AdminLoginPage
+              authenticated={adminSession.authenticated}
+              branding={branding}
+              errorMessage={adminSession.error}
+              isLoading={adminSession.isLoading}
+              onLogin={adminSession.login}
+            />
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedAdminRoute authenticated={adminSession.authenticated} isLoading={adminSession.isLoading}>
+              <AdminPage branding={branding} onLogout={adminSession.logout} />
+            </ProtectedAdminRoute>
+          }
+        />
         <Route path="*" element={<Navigate replace to="/" />} />
       </Routes>
     </div>
@@ -152,11 +179,12 @@ function App() {
 
 interface HomePageProps {
   authenticated: boolean;
+  adminAuthenticated: boolean;
   branding: AppBranding;
   configError: string | null;
 }
 
-function HomePage({ authenticated, branding, configError }: HomePageProps) {
+function HomePage({ authenticated, adminAuthenticated, branding, configError }: HomePageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const legacyTable = searchParams.get('mesa')?.trim();
@@ -244,6 +272,28 @@ function HomePage({ authenticated, branding, configError }: HomePageProps) {
               >
                 <Shield size={16} />
                 {authenticated ? 'Entrar al panel de cocina' : 'Ir al login de cocina'}
+              </Link>
+            </div>
+          </article>
+
+          <article className="panel p-5">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-stone-100 text-stone-700">
+                <ClipboardList size={18} />
+              </span>
+              <div>
+                <h2 className="text-base font-semibold text-stone-900">Administracion</h2>
+                <p className="text-sm text-stone-500">Gestiona carta y revisa pedidos en tiempo real.</p>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <Link
+                to={adminAuthenticated ? '/admin' : '/admin/login'}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
+              >
+                <ClipboardList size={16} />
+                {adminAuthenticated ? 'Entrar a administracion' : 'Ir al login de administracion'}
               </Link>
             </div>
           </article>
@@ -1078,6 +1128,84 @@ function KitchenLoginPage({ authenticated, branding, errorMessage, isLoading, on
   );
 }
 
+interface AdminLoginPageProps {
+  authenticated: boolean;
+  branding: AppBranding;
+  errorMessage: string | null;
+  isLoading: boolean;
+  onLogin: (password: string) => Promise<void>;
+}
+
+function AdminLoginPage({ authenticated, branding, errorMessage, isLoading, onLogin }: AdminLoginPageProps) {
+  const navigate = useNavigate();
+  const [password, setPassword] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (authenticated) {
+    return <Navigate replace to="/admin" />;
+  }
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    try {
+      setIsSubmitting(true);
+      setSubmitError(null);
+      await onLogin(password);
+      navigate('/admin');
+    } catch (requestError) {
+      setSubmitError(requestError instanceof Error ? requestError.message : 'No se pudo iniciar sesion.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="page-container flex min-h-screen items-center justify-center py-10">
+      <section className="panel w-full max-w-md overflow-hidden">
+        <div className="border-b border-stone-200 px-6 py-5">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-stone-900 text-white">
+              <ClipboardList size={18} />
+            </span>
+            <div>
+              <p className="text-sm text-stone-500">{branding.restaurantName}</p>
+              <h1 className="text-lg font-semibold text-stone-900">Acceso a administracion</h1>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-stone-700">Contrasena admin</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-amber-600"
+              placeholder="Introduce la contrasena"
+            />
+          </label>
+
+          {submitError || errorMessage ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{submitError || errorMessage}</p>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={isSubmitting || isLoading || password.trim().length === 0}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300"
+          >
+            {(isSubmitting || isLoading) ? <Loader2 size={16} className="animate-spin" /> : null}
+            Entrar
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 function KitchenPage({ branding, onLogout }: { branding: AppBranding; onLogout: () => Promise<void> }) {
   const navigate = useNavigate();
   const { orders, setOrders, isLoading, error, refresh } = useOrdersFeed();
@@ -1142,6 +1270,168 @@ function KitchenPage({ branding, onLogout }: { branding: AppBranding; onLogout: 
   );
 }
 
+function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: () => Promise<void> }) {
+  const navigate = useNavigate();
+  const {
+    menu,
+    setMenu,
+    isLoading: menuLoading,
+    error: menuError,
+    refresh: refreshMenu,
+  } = useMenuFeed(true, 'admin');
+  const { orders, isLoading: ordersLoading, error: ordersError, refresh: refreshOrders } = useOrdersFeed();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!actionSuccess) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActionSuccess(null);
+    }, 3500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [actionSuccess]);
+
+  const withMenuAction = useCallback(
+    async (action: () => Promise<MenuItem[]>, successMessage: string) => {
+      try {
+        setIsSaving(true);
+        setActionError(null);
+        const nextMenu = await action();
+        setMenu(nextMenu);
+        setActionSuccess(successMessage);
+      } catch (requestError) {
+        setActionError(requestError instanceof Error ? requestError.message : 'No se pudo guardar el cambio.');
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [setMenu],
+  );
+
+  const handleSave = useCallback(
+    async (itemId: string | null, payload: CreateMenuItemRequest) => {
+      await withMenuAction(
+        () => (itemId ? updateAdminMenuItemOnApi(itemId, payload) : createAdminMenuItemOnApi(payload)),
+        itemId ? 'Plato actualizado.' : 'Plato creado.',
+      );
+    },
+    [withMenuAction],
+  );
+
+  const handleDelete = useCallback(
+    async (itemId: string) => {
+      await withMenuAction(() => deleteAdminMenuItemOnApi(itemId), 'Plato eliminado.');
+    },
+    [withMenuAction],
+  );
+
+  const handleDuplicate = useCallback(
+    async (item: MenuItem) => {
+      const payload: CreateMenuItemRequest = {
+        name: `${item.name} copia`,
+        description: item.description,
+        price: item.price,
+        category: item.category,
+        imageUrl: item.imageUrl ?? null,
+        ingredients: item.ingredients,
+        allergens: item.allergens,
+        dietary: item.dietary,
+        available: item.available,
+      };
+
+      await withMenuAction(() => createAdminMenuItemOnApi(payload), 'Plato duplicado.');
+    },
+    [withMenuAction],
+  );
+
+  const handleToggleAvailability = useCallback(
+    async (itemId: string, available: boolean) => {
+      await withMenuAction(
+        () => updateAdminMenuItemAvailabilityOnApi(itemId, { available }),
+        available ? 'Plato visible en carta.' : 'Plato ocultado de la carta.',
+      );
+    },
+    [withMenuAction],
+  );
+
+  const handleMoveItem = useCallback(
+    async (itemId: string, direction: 'up' | 'down') => {
+      const currentItem = menu.find((item) => item.id === itemId);
+      if (!currentItem) {
+        return;
+      }
+
+      const sameCategoryItems = menu
+        .filter((item) => item.category === currentItem.category)
+        .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+      const currentIndex = sameCategoryItems.findIndex((item) => item.id === itemId);
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      const swapTarget = sameCategoryItems[nextIndex];
+
+      if (currentIndex === -1 || !swapTarget) {
+        return;
+      }
+
+      const reordered = [...sameCategoryItems];
+      reordered[currentIndex] = swapTarget;
+      reordered[nextIndex] = currentItem;
+
+      const payload: ReorderMenuRequest = {
+        items: reordered.map((item, index) => ({
+          id: item.id,
+          sortOrder: index,
+        })),
+      };
+
+      await withMenuAction(() => reorderAdminMenuOnApi(payload), 'Orden de carta actualizado.');
+    },
+    [menu, withMenuAction],
+  );
+
+  const handleLogout = useCallback(async () => {
+    await onLogout();
+    navigate('/admin/login');
+  }, [navigate, onLogout]);
+
+  return (
+    <AdminDashboard
+      restaurantName={branding.restaurantName}
+      menu={menu}
+      orders={orders}
+      menuLoading={menuLoading}
+      ordersLoading={ordersLoading}
+      menuError={menuError}
+      ordersError={ordersError}
+      actionError={actionError}
+      actionSuccess={actionSuccess}
+      isSaving={isSaving}
+      onSave={(itemId, payload) => handleSave(itemId, payload as CreateMenuItemRequest)}
+      onDelete={handleDelete}
+      onDuplicate={handleDuplicate}
+      onToggleAvailability={handleToggleAvailability}
+      onMoveItem={handleMoveItem}
+      onRefreshMenu={() => {
+        setActionError(null);
+        void refreshMenu();
+      }}
+      onRefreshOrders={() => {
+        setActionError(null);
+        void refreshOrders();
+      }}
+      onLogout={() => {
+        void handleLogout();
+      }}
+    />
+  );
+}
+
 function ProtectedKitchenRoute({
   authenticated,
   children,
@@ -1164,6 +1454,33 @@ function ProtectedKitchenRoute({
 
   if (!authenticated) {
     return <Navigate replace to="/kitchen/login" />;
+  }
+
+  return <>{children}</>;
+}
+
+function ProtectedAdminRoute({
+  authenticated,
+  children,
+  isLoading,
+}: {
+  authenticated: boolean;
+  children: React.ReactNode;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <main className="page-container flex min-h-screen items-center justify-center py-10">
+        <div className="inline-flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600">
+          <Loader2 size={16} className="animate-spin" />
+          Comprobando acceso a administracion...
+        </div>
+      </main>
+    );
+  }
+
+  if (!authenticated) {
+    return <Navigate replace to="/admin/login" />;
   }
 
   return <>{children}</>;
