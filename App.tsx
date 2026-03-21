@@ -59,6 +59,10 @@ function createCartId() {
   return `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function getSessionDetailsStorageKey(tableNumber: string) {
+  return `dining-session:${tableNumber || 'unknown'}`;
+}
+
 function upsertOrder(orderList: PersistedOrder[], nextOrder: PersistedOrder) {
   return [nextOrder, ...orderList.filter((order) => order.id !== nextOrder.id)];
 }
@@ -289,6 +293,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState('Cliente');
   const [dinersCount, setDinersCount] = useState(1);
+  const [draftClientName, setDraftClientName] = useState('');
+  const [draftDinersCount, setDraftDinersCount] = useState(2);
+  const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -320,6 +327,40 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       window.clearTimeout(timeoutId);
     };
   }, [submitSuccess]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !tableNumber) {
+      return;
+    }
+
+    const storageKey = getSessionDetailsStorageKey(tableNumber);
+    const savedSession = window.sessionStorage.getItem(storageKey);
+
+    if (!savedSession) {
+      setIsSessionModalOpen(true);
+      return;
+    }
+
+    try {
+      const parsedSession = JSON.parse(savedSession) as { clientName?: string; dinersCount?: number };
+
+      if (parsedSession.clientName?.trim()) {
+        setClientName(parsedSession.clientName.trim());
+        setDraftClientName(parsedSession.clientName.trim());
+      }
+
+      if (typeof parsedSession.dinersCount === 'number' && parsedSession.dinersCount >= 1) {
+        const nextDinersCount = Math.max(1, parsedSession.dinersCount);
+        setDinersCount(nextDinersCount);
+        setDraftDinersCount(nextDinersCount);
+      }
+
+      setIsSessionModalOpen(false);
+    } catch {
+      window.sessionStorage.removeItem(storageKey);
+      setIsSessionModalOpen(true);
+    }
+  }, [tableNumber]);
 
   const handleAddToCart = useCallback((item: MenuItem, quantity: number, notes?: string) => {
     setCartItems((previousItems) => {
@@ -394,6 +435,67 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setClientName(name);
     }
   }, []);
+
+  const handleSessionDetailsSubmit = useCallback(() => {
+    const trimmedName = draftClientName.trim();
+
+    if (!trimmedName || !tableNumber) {
+      return;
+    }
+
+    const nextDinersCount = Math.max(1, draftDinersCount);
+
+    setClientName(trimmedName);
+    setDinersCount(nextDinersCount);
+    setIsSessionModalOpen(false);
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(
+        getSessionDetailsStorageKey(tableNumber),
+        JSON.stringify({
+          clientName: trimmedName,
+          dinersCount: nextDinersCount,
+        }),
+      );
+    }
+  }, [draftClientName, draftDinersCount, tableNumber]);
+
+  const handleClientNameChange = useCallback(
+    (value: string) => {
+      setClientName(value);
+      setDraftClientName(value);
+
+      if (typeof window !== 'undefined' && tableNumber && value.trim()) {
+        window.sessionStorage.setItem(
+          getSessionDetailsStorageKey(tableNumber),
+          JSON.stringify({
+            clientName: value.trim(),
+            dinersCount,
+          }),
+        );
+      }
+    },
+    [dinersCount, tableNumber],
+  );
+
+  const handleDinersChange = useCallback(
+    (value: number) => {
+      const nextValue = Math.max(1, value);
+      setDinersCount(nextValue);
+      setDraftDinersCount(nextValue);
+
+      if (typeof window !== 'undefined' && tableNumber) {
+        window.sessionStorage.setItem(
+          getSessionDetailsStorageKey(tableNumber),
+          JSON.stringify({
+            clientName: clientName.trim() || 'Cliente',
+            dinersCount: nextValue,
+          }),
+        );
+      }
+    },
+    [clientName, tableNumber],
+  );
 
   const handleConfirmOrder = useCallback(
     async (nextDiners: number, nextClientName: string, itemsOverride?: CartItem[]) => {
@@ -476,6 +578,15 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
   return (
     <div className="page-container py-5">
+      <SessionDetailsModal
+        clientName={draftClientName}
+        dinersCount={draftDinersCount}
+        isOpen={isSessionModalOpen}
+        onClientNameChange={setDraftClientName}
+        onDinersChange={setDraftDinersCount}
+        onConfirm={handleSessionDetailsSubmit}
+      />
+
       <header className="panel mb-6 overflow-hidden">
         <div className="flex flex-col gap-4 border-b border-stone-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
@@ -560,8 +671,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             tableNumber={tableNumber}
             dinersCount={dinersCount}
             clientName={clientName}
-            onClientNameChange={setClientName}
-            onDinersChange={setDinersCount}
+            onClientNameChange={handleClientNameChange}
+            onDinersChange={handleDinersChange}
             onConfirm={() => {
               void handleConfirmOrder(dinersCount, clientName);
             }}
@@ -594,6 +705,99 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             </button>
           ) : null}
         </aside>
+      </div>
+    </div>
+  );
+}
+
+interface SessionDetailsModalProps {
+  clientName: string;
+  dinersCount: number;
+  isOpen: boolean;
+  onClientNameChange: (value: string) => void;
+  onDinersChange: (value: number) => void;
+  onConfirm: () => void;
+}
+
+function SessionDetailsModal({
+  clientName,
+  dinersCount,
+  isOpen,
+  onClientNameChange,
+  onDinersChange,
+  onConfirm,
+}: SessionDetailsModalProps) {
+  if (!isOpen) {
+    return null;
+  }
+
+  const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
+  const canContinue = clientName.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/45 px-4 py-6">
+      <div className="w-full max-w-md overflow-hidden rounded-xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10">
+        <div className="border-b border-stone-200 px-6 py-5">
+          <h2 className="text-lg font-semibold text-stone-900">Nueva sesi&oacute;n</h2>
+          <p className="mt-1 text-sm leading-6 text-stone-600">
+            Antes de empezar, necesitamos el nombre del cliente y cu&aacute;ntos comensales hay en la mesa.
+          </p>
+        </div>
+
+        <div className="space-y-5 px-6 py-6">
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-stone-700">Nombre</span>
+            <input
+              autoFocus
+              value={clientName}
+              onChange={(event) => onClientNameChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && canContinue) {
+                  event.preventDefault();
+                  onConfirm();
+                }
+              }}
+              className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600"
+              placeholder="Ej. Marta"
+            />
+          </label>
+
+          <div className="space-y-2">
+            <span className="text-sm font-medium text-stone-700">Comensales</span>
+            <div className="grid grid-cols-4 gap-2">
+              {dinersOptions.map((option) => {
+                const isSelected = dinersCount === option;
+                const label = option === 7 ? '7+' : String(option);
+
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => onDinersChange(option)}
+                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                      isSelected
+                        ? 'border-stone-900 bg-stone-900 text-white'
+                        : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:bg-stone-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-stone-200 bg-stone-50 px-6 py-4">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!canContinue}
+            className="inline-flex w-full items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-stone-300"
+          >
+            Continuar
+          </button>
+        </div>
       </div>
     </div>
   );

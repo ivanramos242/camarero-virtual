@@ -34,6 +34,8 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   errorMessage,
   successMessage,
 }) => {
+  const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
+
   return (
     <section className="panel sticky top-6 flex flex-col overflow-hidden">
       <div className="border-b border-stone-200 px-5 py-4">
@@ -66,14 +68,28 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
 
         <label className="block space-y-2">
           <span className="text-sm font-medium text-stone-700">Comensales</span>
-          <input
-            type="number"
-            min={1}
-            max={24}
-            value={dinersCount}
-            onChange={(event) => onDinersChange(Math.max(1, Number(event.target.value) || 1))}
-            className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-600"
-          />
+          <div className="grid grid-cols-4 gap-2">
+            {dinersOptions.map((option) => {
+              const isSelected = dinersCount === option;
+              const label = option === 7 ? '7+' : String(option);
+
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => onDinersChange(option)}
+                  disabled={isSending}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                    isSelected
+                      ? 'border-stone-900 bg-stone-900 text-white'
+                      : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:bg-stone-50'
+                  } disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </label>
       </div>
 
