@@ -872,10 +872,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             items={cartItems}
             total={totalPrice}
             tableNumber={tableNumber}
-            dinersCount={dinersCount}
-            clientName={clientName}
-            onClientNameChange={handleClientNameChange}
-            onDinersChange={handleDinersChange}
             onConfirm={() => {
               void handleConfirmOrder(dinersCount, clientName);
             }}
@@ -948,10 +944,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
               items={cartItems}
               total={totalPrice}
               tableNumber={tableNumber}
-              dinersCount={dinersCount}
-              clientName={clientName}
-              onClientNameChange={handleClientNameChange}
-              onDinersChange={handleDinersChange}
               onConfirm={() => {
                 void handleConfirmOrder(dinersCount, clientName).then((success) => {
                   if (success) {

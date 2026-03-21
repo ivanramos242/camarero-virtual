@@ -7,10 +7,6 @@ interface OrderSummaryProps {
   items: CartItem[];
   total: number;
   tableNumber: string;
-  dinersCount: number;
-  clientName: string;
-  onClientNameChange: (value: string) => void;
-  onDinersChange: (value: number) => void;
   onConfirm: () => void;
   onRemoveItem: (id: string) => void;
   onUpdateQuantity: (id: string, quantity: number) => void;
@@ -24,10 +20,6 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   items,
   total,
   tableNumber,
-  dinersCount,
-  clientName,
-  onClientNameChange,
-  onDinersChange,
   onConfirm,
   onRemoveItem,
   onUpdateQuantity,
@@ -36,8 +28,6 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   successMessage,
   className,
 }) => {
-  const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
-
   return (
     <section className={`panel flex flex-col overflow-hidden lg:sticky lg:top-6 ${className ?? ''}`}>
       <div className="border-b border-stone-200 px-5 py-4">
@@ -55,44 +45,6 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
             {items.reduce((sum, item) => sum + item.quantity, 0)} uds.
           </span>
         </div>
-      </div>
-
-      <div className="space-y-4 border-b border-stone-200 px-5 py-4">
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-stone-700">Nombre del cliente</span>
-          <input
-            value={clientName}
-            onChange={(event) => onClientNameChange(event.target.value)}
-            className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-amber-600"
-            placeholder="Cliente"
-          />
-        </label>
-
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-stone-700">Comensales</span>
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-            {dinersOptions.map((option) => {
-              const isSelected = dinersCount === option;
-              const label = option === 7 ? '7+' : String(option);
-
-              return (
-                <button
-                  key={option}
-                  type="button"
-                  onClick={() => onDinersChange(option)}
-                  disabled={isSending}
-                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
-                    isSelected
-                      ? 'border-stone-900 bg-stone-900 text-white'
-                      : 'border-stone-300 bg-white text-stone-700 hover:border-stone-400 hover:bg-stone-50'
-                  } disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </label>
       </div>
 
       <div className="scrollbar-thin max-h-[42vh] space-y-3 overflow-y-auto px-5 py-4 lg:max-h-[340px]">
