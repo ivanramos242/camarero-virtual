@@ -9,7 +9,9 @@ import multer from 'multer';
 import { z } from 'zod';
 
 import type {
+  AdminTable,
   AdminSessionStatusResponse,
+  CreateAdminTableRequest,
   CreateMenuItemRequest,
   CreateOrderRequest,
   MenuEventPayload,
@@ -18,7 +20,11 @@ import type {
   ReorderMenuRequest,
   SessionStatusResponse,
   SessionTokenResponse,
+  TableQrResponse,
+  TablesQrBatchResponse,
   UploadImageResponse,
+  UpdateAdminTableRequest,
+  UpdateAdminTableStatusRequest,
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
 } from '../types.js';
@@ -35,6 +41,7 @@ import {
 } from './menu.js';
 import { createOrder, listOrders, seedLegacyOrdersFromSheetIfNeeded, toServiceError, updateOrderStatus } from './orders.js';
 import { appStore } from './store.js';
+import { createTable, deleteTable, getTableQr, getTablesQrBatch, listTables, toTablesServiceError, updateTable, updateTableStatus } from './tables.js';
 
 const app = express();
 const kitchenSessions = new Map<string, number>();
@@ -100,6 +107,30 @@ const reorderMenuSchema = z.object({
       sortOrder: z.coerce.number().int().min(0),
     }),
   ),
+});
+
+const tableSchema = z.object({
+  number: z.string().trim().min(1).max(16),
+  label: z.string().trim().max(80).optional(),
+});
+
+const tableUpdateSchema = tableSchema.partial();
+
+const tableStatusSchema = z.object({
+  active: z.coerce.boolean(),
+});
+
+const tableQrQuerySchema = z.object({
+  origin: z.string().trim().url(),
+});
+
+const tableQrBodySchema = z.object({
+  origin: z.string().trim().url(),
+});
+
+const tablesQrBatchSchema = z.object({
+  origin: z.string().trim().url(),
+  tableIds: z.array(z.string().trim().min(1)).min(1),
 });
 
 const uploadsStorage = multer.diskStorage({
@@ -475,8 +506,93 @@ app.get('/api/admin/menu', requireAdminAuth, async (_request, response) => {
   response.json(await getAdminMenu());
 });
 
+app.get('/api/admin/tables', requireAdminAuth, async (_request, response) => {
+  response.json(await listTables());
+});
+
 app.get('/api/admin/orders', requireAdminAuth, async (_request, response) => {
   response.json(await listOrders());
+});
+
+app.post('/api/admin/tables', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = tableSchema.parse(request.body) as CreateAdminTableRequest;
+    const tables = await createTable(payload);
+    response.status(201).json(tables);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.patch('/api/admin/tables/:tableId', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = tableUpdateSchema.parse(request.body) as UpdateAdminTableRequest;
+    const tableId = Array.isArray(request.params.tableId) ? request.params.tableId[0] : request.params.tableId;
+    const tables = await updateTable(tableId, payload);
+    response.json(tables);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.patch('/api/admin/tables/:tableId/status', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = tableStatusSchema.parse(request.body) as UpdateAdminTableStatusRequest;
+    const tableId = Array.isArray(request.params.tableId) ? request.params.tableId[0] : request.params.tableId;
+    const tables = await updateTableStatus(tableId, payload.active);
+    response.json(tables);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.delete('/api/admin/tables/:tableId', requireAdminAuth, async (request, response) => {
+  try {
+    const tableId = Array.isArray(request.params.tableId) ? request.params.tableId[0] : request.params.tableId;
+    const tables = await deleteTable(tableId);
+    response.json(tables);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.get('/api/admin/tables/:tableId/qr', requireAdminAuth, async (request, response) => {
+  try {
+    const { origin } = tableQrQuerySchema.parse(request.query);
+    const tableId = Array.isArray(request.params.tableId) ? request.params.tableId[0] : request.params.tableId;
+    const payload: TableQrResponse = await getTableQr(tableId, { origin });
+    response.json(payload);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.post('/api/admin/tables/:tableId/print', requireAdminAuth, async (request, response) => {
+  try {
+    const { origin } = tableQrBodySchema.parse(request.body);
+    const tableId = Array.isArray(request.params.tableId) ? request.params.tableId[0] : request.params.tableId;
+    const payload: TableQrResponse = await getTableQr(tableId, { origin });
+    response.json(payload);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.post('/api/admin/tables/print-batch', requireAdminAuth, async (request, response) => {
+  try {
+    const payload = tablesQrBatchSchema.parse(request.body);
+    const batch: TablesQrBatchResponse = await getTablesQrBatch(payload);
+    response.json(batch);
+  } catch (error) {
+    const serviceError = toTablesServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
 });
 
 app.post('/api/admin/menu/items', requireAdminAuth, async (request, response) => {

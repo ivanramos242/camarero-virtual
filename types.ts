@@ -159,6 +159,48 @@ export interface UploadImageResponse {
   imageUrl: string;
 }
 
+export interface AdminTable {
+  id: string;
+  number: string;
+  label?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAdminTableRequest {
+  number: string;
+  label?: string;
+}
+
+export interface UpdateAdminTableRequest {
+  number?: string;
+  label?: string;
+}
+
+export interface UpdateAdminTableStatusRequest {
+  active: boolean;
+}
+
+export interface PrintTableQrRequest {
+  origin: string;
+}
+
+export interface TableQrResponse {
+  table: AdminTable;
+  qrSvg: string;
+  qrUrl: string;
+}
+
+export interface PrintTablesQrRequest {
+  origin: string;
+  tableIds: string[];
+}
+
+export interface TablesQrBatchResponse {
+  items: TableQrResponse[];
+}
+
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface LogMessage {

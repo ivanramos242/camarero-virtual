@@ -17,6 +17,7 @@ App React + Vite para cliente y panel de cocina, con backend Express dentro del 
 - `/kitchen`: panel protegido de cocina.
 - `/admin/login`: login de administracion.
 - `/admin`: panel protegido para carta y revision operativa.
+- `/admin/tables/:tableId/print`: ficha imprimible de QR por mesa.
 - `/api/*`: API del backend.
 
 ## Variables de entorno
@@ -84,5 +85,7 @@ Para contenedor/EasyPanel:
 - `/kitchen` requiere sesion por cookie `httpOnly`.
 - `/admin` requiere sesion propia por cookie `httpOnly`.
 - La carta editable vive ya en `data/store.json` y se actualiza en tiempo real por SSE.
+- Las mesas y sus QRs se gestionan desde admin y se guardan en `data/store.json`.
 - Las imagenes subidas desde admin se guardan en `data/uploads/` y se sirven por `/uploads/*`.
+- Los QRs se generan con el dominio actual del navegador en admin; si cambia el dominio, basta con reimprimirlos.
 - La voz ya no expone la `GEMINI_API_KEY` en el bundle del navegador.

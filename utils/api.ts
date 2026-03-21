@@ -1,16 +1,24 @@
 import type {
+  AdminTable,
   AdminSessionStatusResponse,
   AppBranding,
+  CreateAdminTableRequest,
   CreateMenuItemRequest,
   CreateOrderRequest,
   MenuItem,
   MenuEventPayload,
   OrdersEventPayload,
+  PrintTableQrRequest,
+  PrintTablesQrRequest,
   PersistedOrder,
   ReorderMenuRequest,
   SessionStatusResponse,
   SessionTokenResponse,
+  TableQrResponse,
+  TablesQrBatchResponse,
   UploadImageResponse,
+  UpdateAdminTableRequest,
+  UpdateAdminTableStatusRequest,
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
   UpdateOrderStatusRequest,
@@ -65,6 +73,12 @@ export async function fetchMenuFromApi() {
 
 export async function fetchAdminMenuFromApi() {
   return request<MenuItem[]>('/api/admin/menu', {
+    method: 'GET',
+  });
+}
+
+export async function fetchAdminTablesFromApi() {
+  return request<AdminTable[]>('/api/admin/tables', {
     method: 'GET',
   });
 }
@@ -136,6 +150,47 @@ export async function logoutAdmin() {
 
 export async function createAdminMenuItemOnApi(payload: CreateMenuItemRequest) {
   return request<MenuItem[]>('/api/admin/menu/items', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAdminTableOnApi(payload: CreateAdminTableRequest) {
+  return request<AdminTable[]>('/api/admin/tables', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminTableOnApi(tableId: string, payload: UpdateAdminTableRequest) {
+  return request<AdminTable[]>(`/api/admin/tables/${encodeURIComponent(tableId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAdminTableStatusOnApi(tableId: string, payload: UpdateAdminTableStatusRequest) {
+  return request<AdminTable[]>(`/api/admin/tables/${encodeURIComponent(tableId)}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminTableOnApi(tableId: string) {
+  return request<AdminTable[]>(`/api/admin/tables/${encodeURIComponent(tableId)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchAdminTableQrFromApi(tableId: string, payload: PrintTableQrRequest) {
+  const query = `?origin=${encodeURIComponent(payload.origin)}`;
+  return request<TableQrResponse>(`/api/admin/tables/${encodeURIComponent(tableId)}/qr${query}`, {
+    method: 'GET',
+  });
+}
+
+export async function fetchAdminTablesQrBatchFromApi(payload: PrintTablesQrRequest) {
+  return request<TablesQrBatchResponse>('/api/admin/tables/print-batch', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

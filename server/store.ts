@@ -2,12 +2,13 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { MenuItem, MenuMetadata, PersistedOrder } from '../types.js';
+import type { AdminTable, MenuItem, MenuMetadata, PersistedOrder } from '../types.js';
 import { serverConfig } from './config.js';
 
 interface StoreData {
   orders: PersistedOrder[];
   menu: MenuItem[];
+  tables: AdminTable[];
   menuMetadata: MenuMetadata;
   lastLegacyMenuImportAt: string | null;
   menuCache?: MenuItem[];
@@ -17,6 +18,7 @@ interface StoreData {
 const createEmptyStore = (): StoreData => ({
   orders: [],
   menu: [],
+  tables: [],
   menuMetadata: {
     lastUpdatedAt: null,
     lastUpdatedBy: null,
@@ -41,6 +43,7 @@ class AppStore extends EventEmitter {
       return {
         orders: parsedContent.orders ?? [],
         menu: parsedContent.menu ?? parsedContent.menuCache ?? [],
+        tables: parsedContent.tables ?? [],
         menuMetadata: {
           lastUpdatedAt: parsedContent.menuMetadata?.lastUpdatedAt ?? parsedContent.lastMenuSyncAt ?? null,
           lastUpdatedBy: parsedContent.menuMetadata?.lastUpdatedBy ?? ((parsedContent.menu ?? parsedContent.menuCache)?.length ? 'legacy_import' : null),
@@ -73,6 +76,10 @@ class AppStore extends EventEmitter {
     this.emit('menu.changed', menu);
   }
 
+  notifyTablesChanged(tables: AdminTable[]) {
+    this.emit('tables.changed', tables);
+  }
+
   subscribeToOrders(listener: (orders: PersistedOrder[]) => void) {
     this.on('orders.changed', listener);
     return () => {
@@ -84,6 +91,13 @@ class AppStore extends EventEmitter {
     this.on('menu.changed', listener);
     return () => {
       this.off('menu.changed', listener);
+    };
+  }
+
+  subscribeToTables(listener: (tables: AdminTable[]) => void) {
+    this.on('tables.changed', listener);
+    return () => {
+      this.off('tables.changed', listener);
     };
   }
 

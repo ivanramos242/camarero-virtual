@@ -35,22 +35,35 @@ import { useKitchenSession } from './hooks/useKitchenSession';
 import { useLiveSession } from './hooks/useLiveSession';
 import { useOrdersFeed } from './hooks/useOrdersFeed';
 import type {
+  AdminTable,
   AppBranding,
   CartItem,
+  CreateAdminTableRequest,
   CreateMenuItemRequest,
   MenuItem,
   OrderStatus as OrderState,
+  PrintTableQrRequest,
+  PrintTablesQrRequest,
   PersistedOrder,
   ReorderMenuRequest,
+  TableQrResponse,
+  TablesQrBatchResponse,
 } from './types';
 import {
+  createAdminTableOnApi,
   createAdminMenuItemOnApi,
   createOrderOnApi,
+  deleteAdminTableOnApi,
   createVoiceSessionToken,
+  fetchAdminTableQrFromApi,
+  fetchAdminTablesQrBatchFromApi,
+  fetchAdminTablesFromApi,
   deleteAdminMenuItemOnApi,
   fetchPublicConfig,
   reorderAdminMenuOnApi,
   uploadAdminImageOnApi,
+  updateAdminTableOnApi,
+  updateAdminTableStatusOnApi,
   updateAdminMenuItemAvailabilityOnApi,
   updateAdminMenuItemOnApi,
   updateOrderStatusOnApi,
@@ -163,6 +176,22 @@ function App() {
               isLoading={adminSession.isLoading}
               onLogin={adminSession.login}
             />
+          }
+        />
+        <Route
+          path="/admin/tables/print"
+          element={
+            <ProtectedAdminRoute authenticated={adminSession.authenticated} isLoading={adminSession.isLoading}>
+              <AdminTablesBatchPrintPage branding={branding} />
+            </ProtectedAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/tables/:tableId/print"
+          element={
+            <ProtectedAdminRoute authenticated={adminSession.authenticated} isLoading={adminSession.isLoading}>
+              <AdminTablePrintPage branding={branding} />
+            </ProtectedAdminRoute>
           }
         />
         <Route
@@ -1336,10 +1365,17 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
     refresh: refreshMenu,
   } = useMenuFeed(true, 'admin');
   const { orders, isLoading: ordersLoading, error: ordersError, refresh: refreshOrders } = useOrdersFeed();
+  const [tables, setTables] = useState<AdminTable[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(true);
+  const [tablesError, setTablesError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isSavingTable, setIsSavingTable] = useState(false);
+  const [qrPreview, setQrPreview] = useState<TableQrResponse | null>(null);
+  const [qrPreviewLoading, setQrPreviewLoading] = useState(false);
+  const [qrPreviewError, setQrPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!actionSuccess) {
@@ -1354,6 +1390,23 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
       window.clearTimeout(timeoutId);
     };
   }, [actionSuccess]);
+
+  const refreshTables = useCallback(async () => {
+    try {
+      setTablesLoading(true);
+      const nextTables = await fetchAdminTablesFromApi();
+      setTables(nextTables);
+      setTablesError(null);
+    } catch (requestError) {
+      setTablesError(requestError instanceof Error ? requestError.message : 'No se pudieron cargar las mesas.');
+    } finally {
+      setTablesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshTables();
+  }, [refreshTables]);
 
   const withMenuAction = useCallback(
     async (action: () => Promise<MenuItem[]>, successMessage: string) => {
@@ -1468,6 +1521,65 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
     }
   }, []);
 
+  const withTableAction = useCallback(async (action: () => Promise<AdminTable[]>, successMessage: string) => {
+    try {
+      setIsSavingTable(true);
+      setActionError(null);
+      const nextTables = await action();
+      setTables(nextTables);
+      setActionSuccess(successMessage);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'No se pudo guardar la mesa.');
+    } finally {
+      setIsSavingTable(false);
+    }
+  }, []);
+
+  const handleSaveTable = useCallback(async (tableId: string | null, payload: CreateAdminTableRequest) => {
+    await withTableAction(
+      () => (tableId ? updateAdminTableOnApi(tableId, payload) : createAdminTableOnApi(payload)),
+      tableId ? 'Mesa actualizada.' : 'Mesa creada.',
+    );
+  }, [withTableAction]);
+
+  const handleDeleteTable = useCallback(async (tableId: string) => {
+    await withTableAction(() => deleteAdminTableOnApi(tableId), 'Mesa eliminada.');
+  }, [withTableAction]);
+
+  const handleToggleTableStatus = useCallback(async (tableId: string, active: boolean) => {
+    await withTableAction(() => updateAdminTableStatusOnApi(tableId, { active }), active ? 'Mesa activada.' : 'Mesa desactivada.');
+  }, [withTableAction]);
+
+  const handlePreviewQr = useCallback(async (tableId: string) => {
+    try {
+      setQrPreviewLoading(true);
+      setQrPreview(null);
+      setQrPreviewError(null);
+      const payload: PrintTableQrRequest = { origin: window.location.origin };
+      const preview = await fetchAdminTableQrFromApi(tableId, payload);
+      setQrPreview(preview);
+    } catch (requestError) {
+      setQrPreviewError(requestError instanceof Error ? requestError.message : 'No se pudo generar el QR.');
+    } finally {
+      setQrPreviewLoading(false);
+    }
+  }, []);
+
+  const handlePrintQr = useCallback((tableId: string) => {
+    navigate(`/admin/tables/${encodeURIComponent(tableId)}/print`);
+  }, [navigate]);
+
+  const handlePrintSelectedQrs = useCallback((tableIds: string[]) => {
+    if (tableIds.length === 0) {
+      setActionError('Selecciona al menos una mesa para imprimir.');
+      return;
+    }
+
+    const query = new URLSearchParams();
+    query.set('ids', tableIds.join(','));
+    navigate(`/admin/tables/print?${query.toString()}`);
+  }, [navigate]);
+
   const handleLogout = useCallback(async () => {
     await onLogout();
     navigate('/admin/login');
@@ -1478,23 +1590,44 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
       restaurantName={branding.restaurantName}
       menu={menu}
       orders={orders}
+      tables={tables}
       menuLoading={menuLoading}
       ordersLoading={ordersLoading}
+      tablesLoading={tablesLoading}
       menuError={menuError}
       ordersError={ordersError}
+      tablesError={tablesError}
       actionError={actionError}
       actionSuccess={actionSuccess}
       isSaving={isSaving}
       isUploadingImage={isUploadingImage}
+      isSavingTable={isSavingTable}
+      qrPreview={qrPreview}
+      qrPreviewLoading={qrPreviewLoading}
+      qrPreviewError={qrPreviewError}
       onSave={(itemId, payload) => handleSave(itemId, payload as CreateMenuItemRequest)}
       onDelete={handleDelete}
       onDuplicate={handleDuplicate}
       onToggleAvailability={handleToggleAvailability}
       onMoveItem={handleMoveItem}
       onUploadImage={handleUploadImage}
+      onSaveTable={(tableId, payload) => handleSaveTable(tableId, payload as CreateAdminTableRequest)}
+      onDeleteTable={handleDeleteTable}
+      onToggleTableStatus={handleToggleTableStatus}
+      onPreviewQr={handlePreviewQr}
+      onPrintQr={handlePrintQr}
+      onPrintSelectedQrs={handlePrintSelectedQrs}
+      onCloseQrPreview={() => {
+        setQrPreview(null);
+        setQrPreviewError(null);
+      }}
       onRefreshMenu={() => {
         setActionError(null);
         void refreshMenu();
+      }}
+      onRefreshTables={() => {
+        setActionError(null);
+        void refreshTables();
       }}
       onRefreshOrders={() => {
         setActionError(null);
@@ -1504,6 +1637,173 @@ function AdminPage({ branding, onLogout }: { branding: AppBranding; onLogout: ()
         void handleLogout();
       }}
     />
+  );
+}
+
+function AdminTablePrintPage({ branding }: { branding: AppBranding }) {
+  const navigate = useNavigate();
+  const { tableId = '' } = useParams();
+  const [payload, setPayload] = useState<TableQrResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setIsLoading(true);
+        const nextPayload = await fetchAdminTableQrFromApi(tableId, { origin: window.location.origin });
+        if (cancelled) {
+          return;
+        }
+        setPayload(nextPayload);
+        setError(null);
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+        setError(requestError instanceof Error ? requestError.message : 'No se pudo generar el QR.');
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [tableId]);
+
+  useEffect(() => {
+    if (!payload) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      window.print();
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [payload]);
+
+  return (
+    <main className="page-container min-h-screen py-10 print:min-h-0 print:py-0">
+      <div className="print:hidden mb-6 flex items-center gap-3">
+        <button type="button" onClick={() => navigate('/admin')} className="rounded-lg border border-stone-300 px-4 py-2 text-sm text-stone-700 transition hover:bg-stone-50">
+          Volver
+        </button>
+        <button type="button" onClick={() => window.print()} disabled={!payload} className="rounded-lg bg-stone-900 px-4 py-2 text-sm text-white transition hover:bg-black disabled:bg-stone-300">
+          Imprimir
+        </button>
+      </div>
+
+      <section className="panel mx-auto w-full max-w-xl overflow-hidden print:max-w-none print:border-0">
+        {isLoading ? <div className="flex items-center gap-2 px-6 py-8 text-sm text-stone-500"><Loader2 size={16} className="animate-spin" />Generando ficha imprimible...</div> : null}
+        {error ? <div className="px-6 py-8 text-sm text-red-700">{error}</div> : null}
+        {payload ? (
+          <div className="space-y-6 px-8 py-10 text-center">
+            <p className="text-sm font-medium text-stone-500">{branding.restaurantName}</p>
+            <h1 className="text-4xl font-semibold text-stone-900">Mesa {payload.table.number}</h1>
+            <p className="text-sm text-stone-500">{payload.table.label || 'Escanea para abrir la mesa'}</p>
+            <div className="mx-auto flex w-fit items-center justify-center rounded-xl border border-stone-200 bg-white p-4" dangerouslySetInnerHTML={{ __html: payload.qrSvg }} />
+            <p className="break-all text-xs text-stone-500">{payload.qrUrl}</p>
+          </div>
+        ) : null}
+      </section>
+    </main>
+  );
+}
+
+function AdminTablesBatchPrintPage({ branding }: { branding: AppBranding }) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [payload, setPayload] = useState<TablesQrBatchResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const ids = useMemo(
+    () =>
+      (searchParams.get('ids') ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+    [searchParams],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setIsLoading(true);
+        const nextPayload = await fetchAdminTablesQrBatchFromApi({ origin: window.location.origin, tableIds: ids });
+        if (cancelled) {
+          return;
+        }
+        setPayload(nextPayload);
+        setError(null);
+      } catch (requestError) {
+        if (cancelled) {
+          return;
+        }
+        setError(requestError instanceof Error ? requestError.message : 'No se pudieron generar los QRs.');
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [ids]);
+
+  useEffect(() => {
+    if (!payload || payload.items.length === 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      window.print();
+    }, 150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [payload]);
+
+  return (
+    <main className="page-container min-h-screen py-10 print:min-h-0 print:py-0">
+      <div className="print:hidden mb-6 flex items-center gap-3">
+        <button type="button" onClick={() => navigate('/admin')} className="rounded-lg border border-stone-300 px-4 py-2 text-sm text-stone-700 transition hover:bg-stone-50">
+          Volver
+        </button>
+        <button type="button" onClick={() => window.print()} disabled={!payload || payload.items.length === 0} className="rounded-lg bg-stone-900 px-4 py-2 text-sm text-white transition hover:bg-black disabled:bg-stone-300">
+          Imprimir lote
+        </button>
+      </div>
+
+      {isLoading ? <div className="flex items-center gap-2 text-sm text-stone-500"><Loader2 size={16} className="animate-spin" />Generando lote imprimible...</div> : null}
+      {error ? <div className="text-sm text-red-700">{error}</div> : null}
+
+      <div className="grid gap-6 print:block">
+        {payload?.items.map((item) => (
+          <section key={item.table.id} className="panel mx-auto w-full max-w-xl overflow-hidden print:mb-6 print:max-w-none print:break-after-page print:border-0">
+            <div className="space-y-6 px-8 py-10 text-center">
+              <p className="text-sm font-medium text-stone-500">{branding.restaurantName}</p>
+              <h1 className="text-4xl font-semibold text-stone-900">Mesa {item.table.number}</h1>
+              <p className="text-sm text-stone-500">{item.table.label || 'Escanea para abrir la mesa'}</p>
+              <div className="mx-auto flex w-fit items-center justify-center rounded-xl border border-stone-200 bg-white p-4" dangerouslySetInnerHTML={{ __html: item.qrSvg }} />
+              <p className="break-all text-xs text-stone-500">{item.qrUrl}</p>
+            </div>
+          </section>
+        ))}
+      </div>
+    </main>
   );
 }
 
