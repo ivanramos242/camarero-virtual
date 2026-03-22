@@ -1025,6 +1025,9 @@ function WifiAccessModal({ isOpen, ssid, password, onContinue }: WifiAccessModal
     return null;
   }
 
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  const isAppleDevice = /iPhone|iPad|iPod|Macintosh/i.test(userAgent);
+  const canAttemptDirectWifi = !isAppleDevice;
   const wifiUri = `WIFI:T:WPA;S:${ssid};P:${password};;`;
 
   const copyText = async (value: string, field: 'ssid' | 'password' | 'all') => {
@@ -1064,9 +1067,15 @@ function WifiAccessModal({ isOpen, ssid, password, onContinue }: WifiAccessModal
           </div>
 
           <div className="grid gap-2">
-            <button type="button" onClick={() => { window.location.href = wifiUri; }} className="inline-flex w-full items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black">
-              Intentar conectar
-            </button>
+            {canAttemptDirectWifi ? (
+              <button type="button" onClick={() => { window.location.href = wifiUri; }} className="inline-flex w-full items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black">
+                Intentar conectar
+              </button>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                En iPhone, iPad y Safari esta conexion directa no suele funcionar. Copia los datos y conéctate desde Ajustes &gt; Wi‑Fi.
+              </div>
+            )}
             <button type="button" onClick={() => { void copyText(`Red: ${ssid}\nContrasena: ${password}`, 'all'); }} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">
               {copiedField === 'all' ? 'Acceso copiado' : 'Copiar acceso completo'}
             </button>
