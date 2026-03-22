@@ -1,5 +1,6 @@
 import type {
   AdminTable,
+  AdminSettings,
   AdminSessionStatusResponse,
   AppBranding,
   CreateAdminTableRequest,
@@ -19,6 +20,7 @@ import type {
   UploadImageResponse,
   UpdateAdminTableRequest,
   UpdateAdminTableStatusRequest,
+  UpdateAdminSettingsRequest,
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
   UpdateOrderStatusRequest,
@@ -80,6 +82,19 @@ export async function fetchAdminMenuFromApi() {
 export async function fetchAdminTablesFromApi() {
   return request<AdminTable[]>('/api/admin/tables', {
     method: 'GET',
+  });
+}
+
+export async function fetchAdminSettingsFromApi() {
+  return request<AdminSettings>('/api/admin/settings', {
+    method: 'GET',
+  });
+}
+
+export async function updateAdminSettingsOnApi(payload: UpdateAdminSettingsRequest) {
+  return request<AdminSettings>('/api/admin/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   });
 }
 

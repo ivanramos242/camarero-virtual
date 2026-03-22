@@ -102,6 +102,21 @@ export interface AppBranding {
   showDebugTools: boolean;
   voiceEnabled: boolean;
   voiceProvider: 'gemini' | 'openai' | 'none';
+  showWifiPopup: boolean;
+  wifiSsid: string;
+  wifiPassword: string;
+}
+
+export interface AdminSettings {
+  showWifiPopup: boolean;
+  wifiSsid: string;
+  wifiPassword: string;
+}
+
+export interface UpdateAdminSettingsRequest {
+  showWifiPopup: boolean;
+  wifiSsid: string;
+  wifiPassword: string;
 }
 
 export interface SessionStatusResponse {

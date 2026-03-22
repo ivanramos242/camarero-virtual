@@ -63,4 +63,7 @@ export const publicBranding: AppBranding = {
   showDebugTools: process.env.SHOW_DEBUG_TOOLS === 'true',
   voiceEnabled: resolvedVoiceProvider !== 'none',
   voiceProvider: resolvedVoiceProvider,
+  showWifiPopup: process.env.SHOW_WIFI_POPUP === 'true',
+  wifiSsid: process.env.WIFI_SSID?.trim() || '',
+  wifiPassword: process.env.WIFI_PASSWORD?.trim() || '',
 };

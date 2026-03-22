@@ -9,6 +9,7 @@ import multer from 'multer';
 import { z } from 'zod';
 
 import type {
+  AdminSettings,
   AdminTable,
   AdminSessionStatusResponse,
   CreateAdminTableRequest,
@@ -23,6 +24,7 @@ import type {
   TableQrResponse,
   TablesQrBatchResponse,
   UploadImageResponse,
+  UpdateAdminSettingsRequest,
   UpdateAdminTableRequest,
   UpdateAdminTableStatusRequest,
   UpdateMenuItemAvailabilityRequest,
@@ -131,6 +133,12 @@ const tableQrBodySchema = z.object({
 const tablesQrBatchSchema = z.object({
   origin: z.string().trim().url(),
   tableIds: z.array(z.string().trim().min(1)).min(1),
+});
+
+const adminSettingsSchema = z.object({
+  showWifiPopup: z.coerce.boolean(),
+  wifiSsid: z.string().trim().max(120),
+  wifiPassword: z.string().trim().max(120),
 });
 
 const uploadsStorage = multer.diskStorage({
@@ -257,12 +265,31 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
   voice: serverConfig.openAiVoice,
 });
 
+const getAdminSettings = async (): Promise<AdminSettings> => {
+  const store = await appStore.read();
+  return {
+    showWifiPopup: store.settings.showWifiPopup || false,
+    wifiSsid: store.settings.wifiSsid || '',
+    wifiPassword: store.settings.wifiPassword || '',
+  };
+};
+
+const buildPublicConfig = async () => {
+  const settings = await getAdminSettings();
+  return {
+    ...publicBranding,
+    showWifiPopup: settings.showWifiPopup,
+    wifiSsid: settings.wifiSsid,
+    wifiPassword: settings.wifiPassword,
+  };
+};
+
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(serverConfig.uploadsDirPath));
 
-app.get('/api/config', (_request, response) => {
-  response.json(publicBranding);
+app.get('/api/config', async (_request, response) => {
+  response.json(await buildPublicConfig());
 });
 
 app.get('/api/menu', async (_request, response) => {
@@ -512,6 +539,24 @@ app.get('/api/admin/tables', requireAdminAuth, async (_request, response) => {
 
 app.get('/api/admin/orders', requireAdminAuth, async (_request, response) => {
   response.json(await listOrders());
+});
+
+app.get('/api/admin/settings', requireAdminAuth, async (_request, response) => {
+  response.json(await getAdminSettings());
+});
+
+app.patch('/api/admin/settings', requireAdminAuth, async (request, response) => {
+  const payload = adminSettingsSchema.parse(request.body) as UpdateAdminSettingsRequest;
+  const nextState = await appStore.update((current) => ({
+    ...current,
+    settings: {
+      showWifiPopup: payload.showWifiPopup,
+      wifiSsid: payload.wifiSsid,
+      wifiPassword: payload.wifiPassword,
+    },
+  }));
+
+  response.json(nextState.settings);
 });
 
 app.post('/api/admin/tables', requireAdminAuth, async (request, response) => {

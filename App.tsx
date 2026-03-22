@@ -94,6 +94,9 @@ const defaultBranding: AppBranding = {
   showDebugTools: false,
   voiceEnabled: false,
   voiceProvider: 'none',
+  showWifiPopup: false,
+  wifiSsid: '',
+  wifiPassword: '',
 };
 
 type DiningView = 'main' | 'debug';
@@ -472,6 +475,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const [dinersCount, setDinersCount] = useState(1);
   const [draftClientName, setDraftClientName] = useState('');
   const [draftDinersCount, setDraftDinersCount] = useState(2);
+  const [isWifiModalOpen, setIsWifiModalOpen] = useState(false);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -514,7 +518,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     const savedSession = window.sessionStorage.getItem(storageKey);
 
     if (!savedSession) {
-      setIsSessionModalOpen(true);
+      if (branding.showWifiPopup && branding.wifiSsid.trim()) {
+        setIsWifiModalOpen(true);
+        setIsSessionModalOpen(false);
+      } else {
+        setIsSessionModalOpen(true);
+      }
       return;
     }
 
@@ -535,9 +544,14 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setIsSessionModalOpen(false);
     } catch {
       window.sessionStorage.removeItem(storageKey);
-      setIsSessionModalOpen(true);
+      if (branding.showWifiPopup && branding.wifiSsid.trim()) {
+        setIsWifiModalOpen(true);
+        setIsSessionModalOpen(false);
+      } else {
+        setIsSessionModalOpen(true);
+      }
     }
-  }, [tableNumber]);
+  }, [branding.showWifiPopup, branding.wifiSsid, tableNumber]);
 
   const handleAddToCart = useCallback((item: MenuItem, quantity: number, notes?: string) => {
     setCartItems((previousItems) => {
@@ -745,7 +759,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   }, [voiceSession.logs]);
 
   useEffect(() => {
-    if (!isSessionModalOpen && !isCartOpen) {
+    if (!isSessionModalOpen && !isCartOpen && !isWifiModalOpen) {
       return;
     }
 
@@ -755,7 +769,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [isCartOpen, isSessionModalOpen]);
+  }, [isCartOpen, isSessionModalOpen, isWifiModalOpen]);
 
   const viewTabs = useMemo(() => {
     const tabs: Array<{ value: DiningView; label: string; icon: typeof Mic }> = [];
@@ -769,6 +783,15 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
   return (
     <div className="page-container py-5">
+      <WifiAccessModal
+        isOpen={isWifiModalOpen}
+        ssid={branding.wifiSsid}
+        password={branding.wifiPassword}
+        onContinue={() => {
+          setIsWifiModalOpen(false);
+          setIsSessionModalOpen(true);
+        }}
+      />
       <SessionDetailsModal
         clientName={draftClientName}
         dinersCount={draftDinersCount}
@@ -972,6 +995,89 @@ interface SessionDetailsModalProps {
   onClientNameChange: (value: string) => void;
   onDinersChange: (value: number) => void;
   onConfirm: () => void;
+}
+
+interface WifiAccessModalProps {
+  isOpen: boolean;
+  ssid: string;
+  password: string;
+  onContinue: () => void;
+}
+
+function WifiAccessModal({ isOpen, ssid, password, onContinue }: WifiAccessModalProps) {
+  const [copiedField, setCopiedField] = useState<'ssid' | 'password' | 'all' | null>(null);
+
+  useEffect(() => {
+    if (!copiedField) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCopiedField(null);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copiedField]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const wifiUri = `WIFI:T:WPA;S:${ssid};P:${password};;`;
+
+  const copyText = async (value: string, field: 'ssid' | 'password' | 'all') => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+    } catch {
+      setCopiedField(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6">
+      <div className="w-full max-w-md overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10 sm:rounded-xl">
+        <div className="border-b border-stone-200 px-5 py-5 sm:px-6">
+          <h2 className="text-lg font-semibold text-stone-900">Conecta el Wi-Fi del restaurante</h2>
+          <p className="mt-1 text-sm leading-6 text-stone-600">
+            Antes de empezar, te dejamos la red y la contrasena listas para conectar o copiar.
+          </p>
+        </div>
+
+        <div className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
+          <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Red</p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-sm font-semibold text-stone-900">{ssid}</p>
+              <button type="button" onClick={() => { void copyText(ssid, 'ssid'); }} className="rounded-lg border border-stone-300 px-3 py-2 text-xs text-stone-700 transition hover:bg-white">Copiar</button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Contrasena</p>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="min-w-0 truncate text-sm font-semibold text-stone-900">{password || 'Sin contrasena'}</p>
+              <button type="button" onClick={() => { void copyText(password, 'password'); }} className="rounded-lg border border-stone-300 px-3 py-2 text-xs text-stone-700 transition hover:bg-white">Copiar</button>
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <button type="button" onClick={() => { window.location.href = wifiUri; }} className="inline-flex w-full items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black">
+              Intentar conectar
+            </button>
+            <button type="button" onClick={() => { void copyText(`Red: ${ssid}\nContrasena: ${password}`, 'all'); }} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">
+              {copiedField === 'all' ? 'Acceso copiado' : 'Copiar acceso completo'}
+            </button>
+            <button type="button" onClick={onContinue} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">
+              Continuar sin conectar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SessionDetailsModal({

@@ -6,6 +6,7 @@ import AdminDashboard from '../components/AdminDashboard';
 import { useMenuFeed } from '../hooks/useMenuFeed';
 import { useOrdersFeed } from '../hooks/useOrdersFeed';
 import type {
+  AdminSettings,
   AdminTable,
   AppBranding,
   CreateAdminTableRequest,
@@ -14,16 +15,19 @@ import type {
   ReorderMenuRequest,
   TableQrResponse,
   TablesQrBatchResponse,
+  UpdateAdminSettingsRequest,
 } from '../types';
 import {
   createAdminMenuItemOnApi,
   createAdminTableOnApi,
   deleteAdminMenuItemOnApi,
   deleteAdminTableOnApi,
+  fetchAdminSettingsFromApi,
   fetchAdminTableQrFromApi,
   fetchAdminTablesFromApi,
   fetchAdminTablesQrBatchFromApi,
   reorderAdminMenuOnApi,
+  updateAdminSettingsOnApi,
   updateAdminMenuItemAvailabilityOnApi,
   updateAdminMenuItemOnApi,
   updateAdminTableOnApi,
@@ -125,8 +129,11 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
   } = useMenuFeed(true, 'admin');
   const { orders, isLoading: ordersLoading, error: ordersError, refresh: refreshOrders } = useOrdersFeed();
   const [tables, setTables] = useState<AdminTable[]>([]);
+  const [settings, setSettings] = useState<AdminSettings>({ showWifiPopup: branding.showWifiPopup, wifiSsid: branding.wifiSsid, wifiPassword: branding.wifiPassword });
   const [tablesLoading, setTablesLoading] = useState(true);
   const [tablesError, setTablesError] = useState<string | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -166,6 +173,22 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
   useEffect(() => {
     void refreshTables();
   }, [refreshTables]);
+
+  const refreshSettings = useCallback(async () => {
+    try {
+      setSettingsLoading(true);
+      const nextSettings = await fetchAdminSettingsFromApi();
+      setSettings(nextSettings);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'No se pudieron cargar las opciones.');
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSettings();
+  }, [refreshSettings]);
 
   const withMenuAction = useCallback(
     async (action: () => Promise<MenuItem[]>, successMessage: string) => {
@@ -277,6 +300,20 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
     }
   }, []);
 
+  const handleSaveSettings = useCallback(async (payload: UpdateAdminSettingsRequest) => {
+    try {
+      setIsSavingSettings(true);
+      setActionError(null);
+      const nextSettings = await updateAdminSettingsOnApi(payload);
+      setSettings(nextSettings);
+      setActionSuccess('Opciones actualizadas.');
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'No se pudieron guardar las opciones.');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  }, []);
+
   const withTableAction = useCallback(async (action: () => Promise<AdminTable[]>, successMessage: string) => {
     try {
       setIsSavingTable(true);
@@ -346,15 +383,18 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
       menu={menu}
       orders={orders}
       tables={tables}
+      settings={settings}
       menuLoading={menuLoading}
       ordersLoading={ordersLoading}
       tablesLoading={tablesLoading}
+      settingsLoading={settingsLoading}
       menuError={menuError}
       ordersError={ordersError}
       tablesError={tablesError}
       actionError={actionError}
       actionSuccess={actionSuccess}
       isSaving={isSaving}
+      isSavingSettings={isSavingSettings}
       isUploadingImage={isUploadingImage}
       isSavingTable={isSavingTable}
       qrPreview={qrPreview}
@@ -366,6 +406,7 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
       onToggleAvailability={handleToggleAvailability}
       onMoveItem={handleMoveItem}
       onUploadImage={handleUploadImage}
+      onSaveSettings={handleSaveSettings}
       onSaveTable={(tableId, payload) => handleSaveTable(tableId, payload as CreateAdminTableRequest)}
       onDeleteTable={handleDeleteTable}
       onToggleTableStatus={handleToggleTableStatus}
@@ -383,6 +424,10 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
       onRefreshTables={() => {
         setActionError(null);
         void refreshTables();
+      }}
+      onRefreshSettings={() => {
+        setActionError(null);
+        void refreshSettings();
       }}
       onRefreshOrders={() => {
         setActionError(null);

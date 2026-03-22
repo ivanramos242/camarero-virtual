@@ -1,26 +1,30 @@
 ﻿
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ClipboardList, Copy, Eye, Loader2, LogOut, Pencil, Plus, Printer, QrCode, RefreshCcw, ShieldCheck, Trash2, X } from 'lucide-react';
-import type { AdminTable, CreateAdminTableRequest, CreateMenuItemRequest, MenuItem, PersistedOrder, TableQrResponse, UpdateAdminTableRequest, UpdateMenuItemRequest } from '../types';
+import type { AdminSettings, AdminTable, CreateAdminTableRequest, CreateMenuItemRequest, MenuItem, PersistedOrder, TableQrResponse, UpdateAdminSettingsRequest, UpdateAdminTableRequest, UpdateMenuItemRequest } from '../types';
 
 type MenuForm = { name: string; description: string; price: string; category: string; imageUrl: string; ingredients: string; allergens: string; dietary: string; available: boolean };
 type TableForm = { number: string; label: string };
-type AdminSection = 'menu' | 'tables' | 'orders';
+type SettingsForm = { showWifiPopup: boolean; wifiSsid: string; wifiPassword: string };
+type AdminSection = 'menu' | 'tables' | 'orders' | 'settings';
 
 interface Props {
   restaurantName: string;
   menu: MenuItem[];
   orders: PersistedOrder[];
   tables: AdminTable[];
+  settings: AdminSettings;
   menuLoading: boolean;
   ordersLoading: boolean;
   tablesLoading: boolean;
+  settingsLoading: boolean;
   menuError?: string | null;
   ordersError?: string | null;
   tablesError?: string | null;
   actionError?: string | null;
   actionSuccess?: string | null;
   isSaving: boolean;
+  isSavingSettings: boolean;
   isUploadingImage: boolean;
   isSavingTable: boolean;
   qrPreview: TableQrResponse | null;
@@ -32,9 +36,11 @@ interface Props {
   onToggleAvailability: (itemId: string, available: boolean) => Promise<void>;
   onMoveItem: (itemId: string, direction: 'up' | 'down') => Promise<void>;
   onUploadImage: (file: File) => Promise<string>;
+  onSaveSettings: (payload: UpdateAdminSettingsRequest) => Promise<void>;
   onRefreshMenu: () => void;
   onRefreshOrders: () => void;
   onRefreshTables: () => void;
+  onRefreshSettings: () => void;
   onSaveTable: (tableId: string | null, payload: CreateAdminTableRequest | UpdateAdminTableRequest) => Promise<void>;
   onDeleteTable: (tableId: string) => Promise<void>;
   onToggleTableStatus: (tableId: string, active: boolean) => Promise<void>;
@@ -47,6 +53,7 @@ interface Props {
 
 const emptyMenu: MenuForm = { name: '', description: '', price: '', category: '', imageUrl: '', ingredients: '', allergens: '', dietary: '', available: true };
 const emptyTable: TableForm = { number: '', label: '' };
+const emptySettings: SettingsForm = { showWifiPopup: false, wifiSsid: '', wifiPassword: '' };
 const orderLabel: Record<PersistedOrder['status'], string> = { pending: 'Pendiente', cooking: 'En cocina', ready: 'Listo', served: 'Servido' };
 const toList = (value: string) => value.split(',').map((v) => v.trim()).filter(Boolean);
 const toMenuPayload = (form: MenuForm): CreateMenuItemRequest => ({ name: form.name.trim(), description: form.description.trim(), price: Number(form.price), category: form.category.trim(), imageUrl: form.imageUrl.trim() || null, ingredients: toList(form.ingredients), allergens: toList(form.allergens), dietary: toList(form.dietary), available: form.available });
@@ -58,6 +65,7 @@ export default function AdminDashboard(props: Props) {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenu);
   const [tableForm, setTableForm] = useState<TableForm>(emptyTable);
+  const [settingsForm, setSettingsForm] = useState<SettingsForm>(emptySettings);
   const [tableSearch, setTableSearch] = useState('');
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
 
@@ -70,6 +78,14 @@ export default function AdminDashboard(props: Props) {
     const table = props.tables.find((entry) => entry.id === selectedTableId);
     setTableForm(table ? { number: table.number, label: table.label ?? '' } : emptyTable);
   }, [props.tables, selectedTableId]);
+
+  useEffect(() => {
+    setSettingsForm({
+      showWifiPopup: props.settings.showWifiPopup,
+      wifiSsid: props.settings.wifiSsid,
+      wifiPassword: props.settings.wifiPassword,
+    });
+  }, [props.settings]);
 
   useEffect(() => {
     if (selectedItemId) setActiveSection('menu');
@@ -101,6 +117,7 @@ export default function AdminDashboard(props: Props) {
     { id: 'menu', label: 'Carta', helper: `${props.menu.length} platos`, icon: <Plus size={16} /> },
     { id: 'tables', label: 'Mesas y QR', helper: `${props.tables.length} mesas`, icon: <QrCode size={16} /> },
     { id: 'orders', label: 'Pedidos', helper: `${stats.activeOrders} activos`, icon: <ClipboardList size={16} /> },
+    { id: 'settings', label: 'Opciones', helper: 'Wi-Fi y experiencia', icon: <Pencil size={16} /> },
   ];
 
   const recentOrders = props.orders.slice(0, 8);
@@ -180,16 +197,17 @@ export default function AdminDashboard(props: Props) {
                   <div>
                     <p className="text-sm text-stone-500">Gestion</p>
                     <h2 className="mt-1 text-xl font-semibold text-stone-900 sm:text-2xl">
-                      {activeSection === 'menu' ? 'Carta y platos' : activeSection === 'tables' ? 'Mesas y codigos QR' : 'Pedidos recientes'}
+                      {activeSection === 'menu' ? 'Carta y platos' : activeSection === 'tables' ? 'Mesas y codigos QR' : activeSection === 'orders' ? 'Pedidos recientes' : 'Opciones del cliente'}
                     </h2>
                     <p className="mt-2 max-w-2xl text-sm text-stone-500">
-                      {activeSection === 'menu' ? 'Organiza los platos, edita su informacion y controla la visibilidad de la carta.' : activeSection === 'tables' ? 'Gestiona mesas activas, imprime lotes de QR y revisa cada codigo antes de usarlo.' : 'Consulta el estado del servicio y revisa rapidamente los ultimos pedidos.'}
+                      {activeSection === 'menu' ? 'Organiza los platos, edita su informacion y controla la visibilidad de la carta.' : activeSection === 'tables' ? 'Gestiona mesas activas, imprime lotes de QR y revisa cada codigo antes de usarlo.' : activeSection === 'orders' ? 'Consulta el estado del servicio y revisa rapidamente los ultimos pedidos.' : 'Controla el pop-up de Wi-Fi y los datos que vera el cliente al entrar a la mesa.'}
                     </p>
                   </div>
                   <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                     {activeSection === 'menu' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar carta" onClick={props.onRefreshMenu} /> : null}
                     {activeSection === 'tables' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar mesas" onClick={props.onRefreshTables} /> : null}
                     {activeSection === 'orders' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar pedidos" onClick={props.onRefreshOrders} /> : null}
+                    {activeSection === 'settings' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar opciones" onClick={props.onRefreshSettings} /> : null}
                     {activeSection === 'tables' ? <button type="button" onClick={() => props.onPrintSelectedQrs(selectedTableIds)} disabled={selectedTableIds.length === 0} className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 disabled:bg-stone-100 disabled:text-stone-400">Imprimir seleccion</button> : null}
                     {activeSection === 'menu' ? <button type="button" onClick={() => { setSelectedItemId(null); setMenuForm(emptyMenu); }} className="rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-black">Nuevo plato</button> : null}
                     {activeSection === 'tables' ? <button type="button" onClick={() => { setSelectedTableId(null); setTableForm(emptyTable); }} className="rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-black">Nueva mesa</button> : null}
@@ -322,6 +340,28 @@ export default function AdminDashboard(props: Props) {
                 </div>
               </section>
             ) : null}
+
+            {activeSection === 'settings' ? (
+              <section className="panel overflow-hidden">
+                <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+                  <div>
+                    <h3 className="text-base font-semibold text-stone-900">Wi-Fi para clientes</h3>
+                    <p className="mt-1 text-sm text-stone-500">Configura si quieres mostrar el acceso al Wi-Fi antes del nombre y comensales.</p>
+                  </div>
+                  {props.settingsLoading ? <InlineLoader /> : null}
+                </div>
+                <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-4">
+                    <p className="text-sm font-medium text-stone-900">Vista previa del cliente</p>
+                    <p className="mt-1 text-sm text-stone-500">{settingsForm.showWifiPopup ? 'Se mostrara un pop-up de Wi-Fi al abrir la mesa.' : 'La mesa ira directa al formulario de nombre y comensales.'}</p>
+                    <div className="mt-3 space-y-2 rounded-lg border border-stone-200 bg-white px-4 py-4 text-sm">
+                      <p><span className="font-medium text-stone-900">Red:</span> <span className="text-stone-600">{settingsForm.wifiSsid || 'Sin configurar'}</span></p>
+                      <p><span className="font-medium text-stone-900">Contrasena:</span> <span className="text-stone-600">{settingsForm.wifiPassword || 'Sin configurar'}</span></p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
           </section>
           <aside className="space-y-6 lg:sticky lg:top-6 lg:self-start">
             {activeSection === 'menu' ? (
@@ -380,6 +420,17 @@ export default function AdminDashboard(props: Props) {
                   </div>
                 </div>
               </section>
+            ) : null}
+
+            {activeSection === 'settings' ? (
+              <PanelForm title="Opciones de Wi-Fi" description="Define si quieres mostrar el acceso a internet y con que datos.">
+                <form onSubmit={(e) => { e.preventDefault(); void props.onSaveSettings({ showWifiPopup: settingsForm.showWifiPopup, wifiSsid: settingsForm.wifiSsid.trim(), wifiPassword: settingsForm.wifiPassword.trim() }); }} className="space-y-4 px-6 py-5">
+                  <label className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-3"><div><p className="text-sm font-medium text-stone-800">Mostrar pop-up de Wi-Fi</p><p className="text-xs text-stone-500">Se enseña antes del formulario inicial de cliente.</p></div><input type="checkbox" checked={settingsForm.showWifiPopup} onChange={(e) => setSettingsForm((current) => ({ ...current, showWifiPopup: e.target.checked }))} className="h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" /></label>
+                  <Input label="Nombre de la red" value={settingsForm.wifiSsid} onChange={(value) => setSettingsForm((current) => ({ ...current, wifiSsid: value }))} placeholder="Ej. Restaurante Guest" />
+                  <Input label="Contrasena Wi-Fi" value={settingsForm.wifiPassword} onChange={(value) => setSettingsForm((current) => ({ ...current, wifiPassword: value }))} placeholder="Ej. camarero2026" />
+                  <div className="flex flex-wrap gap-2 pt-2"><PrimaryButton type="submit" loading={props.isSavingSettings}>Guardar opciones</PrimaryButton><SecondaryButton onClick={() => setSettingsForm({ showWifiPopup: props.settings.showWifiPopup, wifiSsid: props.settings.wifiSsid, wifiPassword: props.settings.wifiPassword })}>Restablecer</SecondaryButton></div>
+                </form>
+              </PanelForm>
             ) : null}
           </aside>
         </div>

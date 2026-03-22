@@ -2,13 +2,14 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { AdminTable, MenuItem, MenuMetadata, PersistedOrder } from '../types.js';
+import type { AdminSettings, AdminTable, MenuItem, MenuMetadata, PersistedOrder } from '../types.js';
 import { serverConfig } from './config.js';
 
 interface StoreData {
   orders: PersistedOrder[];
   menu: MenuItem[];
   tables: AdminTable[];
+  settings: AdminSettings;
   menuMetadata: MenuMetadata;
   lastLegacyMenuImportAt: string | null;
   menuCache?: MenuItem[];
@@ -19,6 +20,11 @@ const createEmptyStore = (): StoreData => ({
   orders: [],
   menu: [],
   tables: [],
+  settings: {
+    showWifiPopup: false,
+    wifiSsid: '',
+    wifiPassword: '',
+  },
   menuMetadata: {
     lastUpdatedAt: null,
     lastUpdatedBy: null,
@@ -44,6 +50,11 @@ class AppStore extends EventEmitter {
         orders: parsedContent.orders ?? [],
         menu: parsedContent.menu ?? parsedContent.menuCache ?? [],
         tables: parsedContent.tables ?? [],
+        settings: {
+          showWifiPopup: parsedContent.settings?.showWifiPopup ?? false,
+          wifiSsid: parsedContent.settings?.wifiSsid ?? '',
+          wifiPassword: parsedContent.settings?.wifiPassword ?? '',
+        },
         menuMetadata: {
           lastUpdatedAt: parsedContent.menuMetadata?.lastUpdatedAt ?? parsedContent.lastMenuSyncAt ?? null,
           lastUpdatedBy: parsedContent.menuMetadata?.lastUpdatedBy ?? ((parsedContent.menu ?? parsedContent.menuCache)?.length ? 'legacy_import' : null),
