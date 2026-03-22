@@ -12,6 +12,7 @@ import {
   AlertCircle,
   ClipboardList,
   ChefHat,
+  Copy,
   Loader2,
   Mic,
   MicOff,
@@ -1053,13 +1054,32 @@ interface WifiAccessModalProps {
 }
 
 function WifiAccessModal({ isOpen, ssid, password, onClose }: WifiAccessModalProps) {
+  const [copyState, setCopyState] = useState<'idle' | 'success' | 'error'>('idle');
+
   if (!isOpen) {
     return null;
   }
 
+  const handleCopyPassword = async () => {
+    if (!password) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopyState('success');
+    } catch {
+      setCopyState('error');
+    }
+
+    window.setTimeout(() => {
+      setCopyState('idle');
+    }, 2000);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6">
-      <div className="w-full max-w-md overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10 sm:rounded-xl">
+    <div className="modal-backdrop-enter fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6">
+      <div className="modal-surface-enter w-full max-w-md overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10 sm:rounded-xl">
         <div className="flex items-start justify-between gap-3 border-b border-stone-200 px-5 py-5 sm:px-6">
           <div>
             <h2 className="text-lg font-semibold text-stone-900">Wi-Fi del restaurante</h2>
@@ -1079,8 +1099,26 @@ function WifiAccessModal({ isOpen, ssid, password, onClose }: WifiAccessModalPro
           </div>
 
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Contrasena</p>
-            <p className="mt-2 min-w-0 truncate text-sm font-semibold text-stone-900">{password || 'Sin contrasena'}</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Contrasena</p>
+                <p className="mt-2 min-w-0 truncate text-sm font-semibold text-stone-900">{password || 'Sin contrasena'}</p>
+              </div>
+              {password ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleCopyPassword();
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-medium text-stone-700 transition hover:bg-stone-100"
+                >
+                  <Copy size={14} />
+                  Copiar
+                </button>
+              ) : null}
+            </div>
+            {copyState === 'success' ? <p className="mt-3 text-xs font-medium text-emerald-700">Contrasena copiada.</p> : null}
+            {copyState === 'error' ? <p className="mt-3 text-xs font-medium text-red-700">No se pudo copiar automaticamente.</p> : null}
           </div>
         </div>
       </div>
