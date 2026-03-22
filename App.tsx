@@ -1142,7 +1142,7 @@ function SessionDetailsModal({
     return null;
   }
 
-  const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
+  const dinersOptions = [1, 2, 3, 4, 5, 6, 7, 8];
   const trimmedEmail = customerEmail.trim();
   const hasValidReviewEmail = isValidReviewEmail(trimmedEmail);
   const canContinue = clientName.trim().length > 0 && (!reviewConsent || hasValidReviewEmail);
@@ -1180,7 +1180,7 @@ function SessionDetailsModal({
             <div className="grid grid-cols-4 gap-2 sm:grid-cols-4">
               {dinersOptions.map((option) => {
                 const isSelected = dinersCount === option;
-                const label = option === 7 ? '7+' : String(option);
+                const label = option === 8 ? '8+' : String(option);
 
                 return (
                   <button
