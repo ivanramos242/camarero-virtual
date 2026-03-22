@@ -108,8 +108,8 @@ export default function AdminDashboard(props: Props) {
   return (
     <>
       <div className="page-container py-6">
-        <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)_380px]">
-          <aside className="hidden space-y-6 xl:sticky xl:top-6 xl:block xl:self-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[248px_minmax(0,1fr)_360px]">
+          <aside className="hidden space-y-6 2xl:sticky 2xl:top-6 2xl:block 2xl:self-start">
             <section className="panel overflow-hidden">
               <div className="border-b border-stone-200 px-5 py-5">
                 <div className="flex items-center gap-3">
@@ -144,7 +144,7 @@ export default function AdminDashboard(props: Props) {
           </aside>
 
           <section className="space-y-6">
-            <section className="panel overflow-hidden xl:hidden">
+            <section className="panel overflow-hidden 2xl:hidden">
               <div className="border-b border-stone-200 px-4 py-4">
                 <div className="flex items-center gap-3">
                   <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-stone-900 text-white shadow-sm">
@@ -175,18 +175,18 @@ export default function AdminDashboard(props: Props) {
               </div>
             </section>
             <section className="panel overflow-hidden">
-              <div className="border-b border-stone-200 px-6 py-5">
+              <div className="border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-400">Gestion</p>
-                    <h2 className="mt-1 text-2xl font-semibold text-stone-900">
+                    <p className="text-sm text-stone-500">Gestion</p>
+                    <h2 className="mt-1 text-xl font-semibold text-stone-900 sm:text-2xl">
                       {activeSection === 'menu' ? 'Carta y platos' : activeSection === 'tables' ? 'Mesas y codigos QR' : 'Pedidos recientes'}
                     </h2>
                     <p className="mt-2 max-w-2xl text-sm text-stone-500">
                       {activeSection === 'menu' ? 'Organiza los platos, edita su informacion y controla la visibilidad de la carta.' : activeSection === 'tables' ? 'Gestiona mesas activas, imprime lotes de QR y revisa cada codigo antes de usarlo.' : 'Consulta el estado del servicio y revisa rapidamente los ultimos pedidos.'}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                     {activeSection === 'menu' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar carta" onClick={props.onRefreshMenu} /> : null}
                     {activeSection === 'tables' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar mesas" onClick={props.onRefreshTables} /> : null}
                     {activeSection === 'orders' ? <ToolbarButton icon={<RefreshCcw size={16} />} label="Actualizar pedidos" onClick={props.onRefreshOrders} /> : null}
@@ -200,17 +200,17 @@ export default function AdminDashboard(props: Props) {
             </section>
             {activeSection === 'menu' ? (
               <section className="panel overflow-hidden">
-                <div className="flex items-center justify-between border-b border-stone-200 px-6 py-5">
+                <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
                   <div>
                     <h3 className="text-base font-semibold text-stone-900">Listado de platos</h3>
                     <p className="mt-1 text-sm text-stone-500">Separa mejor las categorias y entra a editar solo cuando lo necesites.</p>
                   </div>
                   {props.menuLoading ? <InlineLoader /> : null}
                 </div>
-                <div className="space-y-5 px-6 py-5">
+                <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
                   {groupedMenu.length === 0 && !props.menuLoading ? <EmptyState text="Todavia no hay platos guardados." /> : null}
                   {groupedMenu.map(([category, items]) => (
-                    <div key={category} className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50/80 p-4">
+                    <div key={category} className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/80 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <h3 className="text-sm font-semibold text-stone-900">{category}</h3>
@@ -220,7 +220,7 @@ export default function AdminDashboard(props: Props) {
                       </div>
                       <div className="space-y-3">
                         {[...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((item, index) => (
-                          <article key={item.id} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/50">
+                          <article key={item.id} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/50">
                             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -234,7 +234,7 @@ export default function AdminDashboard(props: Props) {
                                   <span>Alergenos: {item.allergens.length ? item.allergens.join(', ') : 'Sin definir'}</span>
                                 </div>
                               </div>
-                              <div className="flex flex-wrap items-center gap-2">
+                              <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                                 <SquareButton icon={<ArrowUp size={16} />} disabled={index === 0 || props.isSaving} onClick={() => void props.onMoveItem(item.id, 'up')} />
                                 <SquareButton icon={<ArrowDown size={16} />} disabled={index === items.length - 1 || props.isSaving} onClick={() => void props.onMoveItem(item.id, 'down')} />
                                 <ActionButton icon={<Pencil size={15} />} label="Editar" onClick={() => setSelectedItemId(item.id)} />
@@ -254,7 +254,7 @@ export default function AdminDashboard(props: Props) {
 
             {activeSection === 'tables' ? (
               <section className="panel overflow-hidden">
-                <div className="flex flex-col gap-4 border-b border-stone-200 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-4 border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h3 className="text-base font-semibold text-stone-900">Listado de mesas</h3>
                     <p className="mt-1 text-sm text-stone-500">Busca, imprime y gestiona cada QR desde una sola vista.</p>
@@ -264,11 +264,11 @@ export default function AdminDashboard(props: Props) {
                     {props.tablesLoading ? <InlineLoader /> : null}
                   </div>
                 </div>
-                <div className="space-y-3 px-6 py-5">
+                <div className="space-y-3 px-4 py-4 sm:px-6 sm:py-5">
                   {filteredTables.length > 0 ? <label className="flex items-center gap-2 text-sm text-stone-600"><input type="checkbox" checked={filteredTables.every((table) => selectedTableIds.includes(table.id)) && filteredTables.length > 0} onChange={(event) => setSelectedTableIds(event.target.checked ? Array.from(new Set([...selectedTableIds, ...filteredTables.map((table) => table.id)])) : selectedTableIds.filter((id) => !filteredTables.some((table) => table.id === id)))} className="h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" />Seleccionar mesas visibles</label> : null}
                   {filteredTables.length === 0 && !props.tablesLoading ? <EmptyState text="Todavia no hay mesas creadas." /> : null}
                   {filteredTables.map((table) => (
-                    <article key={table.id} className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/50">
+                    <article key={table.id} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/50">
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                         <div className="flex items-start gap-3">
                           <input type="checkbox" checked={selectedTableIds.includes(table.id)} onChange={(event) => setSelectedTableIds((current) => event.target.checked ? [...current, table.id] : current.filter((id) => id !== table.id))} className="mt-1 h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" />
@@ -280,7 +280,7 @@ export default function AdminDashboard(props: Props) {
                             <p className="mt-1 text-sm text-stone-500">{table.label || 'Sin alias interno.'}</p>
                           </div>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                           <ActionButton icon={<Pencil size={15} />} label="Editar" onClick={() => setSelectedTableId(table.id)} />
                           <ActionButton icon={<Eye size={15} />} label="Ver QR" onClick={() => void props.onPreviewQr(table.id)} />
                           <ActionButton icon={<Printer size={15} />} label="Imprimir QR" onClick={() => props.onPrintQr(table.id)} />
@@ -296,17 +296,17 @@ export default function AdminDashboard(props: Props) {
 
             {activeSection === 'orders' ? (
               <section className="panel overflow-hidden">
-                <div className="flex items-center justify-between border-b border-stone-200 px-6 py-5">
+                <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
                   <div>
                     <h3 className="text-base font-semibold text-stone-900">Actividad reciente</h3>
                     <p className="mt-1 text-sm text-stone-500">Una vista limpia para controlar el ritmo de sala y cocina.</p>
                   </div>
                   {props.ordersLoading ? <InlineLoader /> : null}
                 </div>
-                <div className="space-y-3 px-6 py-5">
+                <div className="space-y-3 px-4 py-4 sm:px-6 sm:py-5">
                   {recentOrders.length === 0 && !props.ordersLoading ? <EmptyState text="No hay pedidos todavia." /> : null}
                   {recentOrders.map((order) => (
-                    <article key={order.id} className="rounded-2xl border border-stone-200 bg-white px-4 py-4 shadow-sm shadow-stone-100/50">
+                    <article key={order.id} className="rounded-xl border border-stone-200 bg-white px-4 py-4 shadow-sm shadow-stone-100/50">
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
@@ -323,7 +323,7 @@ export default function AdminDashboard(props: Props) {
               </section>
             ) : null}
           </section>
-          <aside className="space-y-6 xl:sticky xl:top-6 xl:self-start">
+          <aside className="space-y-6 lg:sticky lg:top-6 lg:self-start">
             {activeSection === 'menu' ? (
               <PanelForm title={selectedItemId ? 'Editar plato' : 'Nuevo plato'} description={selectedItemId ? 'Actualiza los datos y guarda sin salir del panel.' : 'Crea un plato nuevo y asignalo a una categoria.'}>
                 <form onSubmit={(e) => { e.preventDefault(); void props.onSave(selectedItemId, toMenuPayload(menuForm)); if (!selectedItemId) setMenuForm(emptyMenu); }} className="space-y-4 px-6 py-5">
@@ -390,21 +390,21 @@ export default function AdminDashboard(props: Props) {
   );
 }
 
-function ToolbarButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50">{icon}{label}</button>; }
+function ToolbarButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 sm:w-auto">{icon}{label}</button>; }
 function Messages({ values }: { values: Array<string | null | undefined> }) { const list = values.filter(Boolean) as string[]; if (!list.length) return null; return <div className="space-y-2 px-6 py-4 text-sm">{list.map((value, index) => <p key={`${value}-${index}`} className={`rounded-lg px-3 py-2 ${index === list.length - 1 && values[values.length - 1] ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{value}</p>)}</div>; }
 function EmptyState({ text }: { text: string }) { return <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-sm text-stone-500">{text}</div>; }
 function Badge({ active, activeLabel = 'Activa', inactiveLabel = 'Desactivada' }: { active: boolean; activeLabel?: string; inactiveLabel?: string }) { return <span className={`rounded-md px-2 py-1 text-xs font-medium ${active ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-600'}`}>{active ? activeLabel : inactiveLabel}</span>; }
 function InlineLoader({ text = 'Actualizando' }: { text?: string }) { return <div className="inline-flex items-center gap-2 text-sm text-stone-500"><Loader2 size={16} className="animate-spin" />{text}</div>; }
-function ActionButton({ icon, label, onClick }: { icon?: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex items-center gap-2 rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-50">{icon}{label}</button>; }
-function IconDangerButton({ icon, onClick }: { icon: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50">{icon}</button>; }
-function SquareButton({ icon, disabled, onClick }: { icon: React.ReactNode; disabled?: boolean; onClick: () => void }) { return <button type="button" disabled={disabled} onClick={onClick} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 text-stone-700 transition hover:bg-stone-50 disabled:bg-stone-100 disabled:text-stone-400">{icon}</button>; }
-function PanelForm({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="panel overflow-hidden"><div className="border-b border-stone-200 px-6 py-5"><h2 className="text-base font-semibold text-stone-900">{title}</h2><p className="mt-1 text-sm text-stone-500">{description}</p></div>{children}</section>; }
+function ActionButton({ icon, label, onClick }: { icon?: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-50 sm:w-auto">{icon}{label}</button>; }
+function IconDangerButton({ icon, onClick }: { icon: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50 sm:h-9 sm:w-9">{icon}</button>; }
+function SquareButton({ icon, disabled, onClick }: { icon: React.ReactNode; disabled?: boolean; onClick: () => void }) { return <button type="button" disabled={disabled} onClick={onClick} className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-stone-300 text-stone-700 transition hover:bg-stone-50 disabled:bg-stone-100 disabled:text-stone-400 sm:h-9 sm:w-9">{icon}</button>; }
+function PanelForm({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="panel overflow-hidden"><div className="border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5"><h2 className="text-base font-semibold text-stone-900">{title}</h2><p className="mt-1 text-sm text-stone-500">{description}</p></div>{children}</section>; }
 function MobileNavButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition ${active ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'}`}>{icon}{label}</button>; }
 function SidebarNavButton({ active, icon, label, helper, onClick }: { active: boolean; icon: React.ReactNode; label: string; helper: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-stone-900 text-white shadow-lg shadow-stone-300/30' : 'text-stone-700 hover:bg-stone-50'}`}><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-white/12 text-white' : 'bg-stone-100 text-stone-600'}`}>{icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{label}</span><span className={`block text-xs ${active ? 'text-stone-300' : 'text-stone-500'}`}>{helper}</span></span></button>; }
 function StatCard({ label, value, tone = 'default', compact = false }: { label: string; value: number; tone?: 'default' | 'amber' | 'muted'; compact?: boolean }) { return <div className={`rounded-2xl border px-4 ${compact ? 'py-3' : 'py-3'} ${tone === 'amber' ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white'}`}><p className={`font-medium uppercase tracking-[0.14em] text-stone-500 ${compact ? 'text-[11px]' : 'text-xs'}`}>{label}</p><p className={`font-semibold text-stone-900 ${compact ? 'mt-1 text-xl' : 'mt-2 text-2xl'}`}>{value}</p></div>; }
 function SummaryRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-4 py-3"><span className="text-sm text-stone-600">{label}</span><span className="text-sm font-semibold text-stone-900">{value}</span></div>; }
 function Input({ label, value, onChange, placeholder, list }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; list?: string }) { return <label className="block space-y-2"><span className="text-sm font-medium text-stone-700">{label}</span><input list={list} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600" placeholder={placeholder} /></label>; }
 function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="block space-y-2"><span className="text-sm font-medium text-stone-700">{label}</span><textarea rows={3} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600" /></label>; }
-function PrimaryButton({ children, disabled, loading, onClick, type = 'button' }: { children: React.ReactNode; disabled?: boolean; loading?: boolean; onClick?: () => void; type?: 'button' | 'submit' }) { return <button type={type} onClick={onClick} disabled={disabled || loading} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300">{loading ? <Loader2 size={16} className="animate-spin" /> : null}{children}</button>; }
-function SecondaryButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">{children}</button>; }
+function PrimaryButton({ children, disabled, loading, onClick, type = 'button' }: { children: React.ReactNode; disabled?: boolean; loading?: boolean; onClick?: () => void; type?: 'button' | 'submit' }) { return <button type={type} onClick={onClick} disabled={disabled || loading} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:bg-stone-300 sm:flex-1">{loading ? <Loader2 size={16} className="animate-spin" /> : null}{children}</button>; }
+function SecondaryButton({ children, onClick }: { children: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50 sm:w-auto">{children}</button>; }
 
