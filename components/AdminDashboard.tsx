@@ -66,6 +66,7 @@ export default function AdminDashboard(props: Props) {
   const [menuForm, setMenuForm] = useState<MenuForm>(emptyMenu);
   const [tableForm, setTableForm] = useState<TableForm>(emptyTable);
   const [settingsForm, setSettingsForm] = useState<SettingsForm>(emptySettings);
+  const [menuSearch, setMenuSearch] = useState('');
   const [tableSearch, setTableSearch] = useState('');
   const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
 
@@ -97,6 +98,31 @@ export default function AdminDashboard(props: Props) {
 
   const categories = useMemo(() => Array.from(new Set<string>(props.menu.map((item) => item.category))).sort((a, b) => a.localeCompare(b, 'es')), [props.menu]);
   const groupedMenu = useMemo(() => Array.from(props.menu.reduce((map, item) => map.set(item.category, [...(map.get(item.category) ?? []), item]), new Map<string, MenuItem[]>()).entries()).sort(([a], [b]) => a.localeCompare(b, 'es')), [props.menu]);
+  const filteredGroupedMenu = useMemo(() => {
+    const search = menuSearch.trim().toLowerCase();
+    if (!search) {
+      return groupedMenu;
+    }
+
+    return groupedMenu
+      .map(([category, items]) => [
+        category,
+        items.filter((item) =>
+          [
+            item.name,
+            item.description,
+            item.category,
+            item.ingredients.join(' '),
+            item.allergens.join(' '),
+            item.dietary.join(' '),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(search),
+        ),
+      ] as [string, MenuItem[]])
+      .filter(([, items]) => items.length > 0);
+  }, [groupedMenu, menuSearch]);
   const filteredTables = useMemo(() => {
     const search = tableSearch.trim().toLowerCase();
     return search ? props.tables.filter((table) => table.number.toLowerCase().includes(search) || (table.label ?? '').toLowerCase().includes(search)) : props.tables;
@@ -218,41 +244,59 @@ export default function AdminDashboard(props: Props) {
             </section>
             {activeSection === 'menu' ? (
               <section className="panel overflow-hidden">
-                <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-4 border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h3 className="text-base font-semibold text-stone-900">Listado de platos</h3>
-                    <p className="mt-1 text-sm text-stone-500">Separa mejor las categorias y entra a editar solo cuando lo necesites.</p>
+                    <p className="mt-1 text-sm text-stone-500">Busca rapido, revisa el estado y entra a editar solo cuando haga falta.</p>
                   </div>
-                  {props.menuLoading ? <InlineLoader /> : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input value={menuSearch} onChange={(e) => setMenuSearch(e.target.value)} placeholder="Buscar plato, categoria o ingrediente" className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600 sm:w-72" />
+                    {props.menuLoading ? <InlineLoader /> : null}
+                  </div>
                 </div>
                 <div className="space-y-5 px-4 py-4 sm:px-6 sm:py-5">
                   {groupedMenu.length === 0 && !props.menuLoading ? <EmptyState text="Todavia no hay platos guardados." /> : null}
-                  {groupedMenu.map(([category, items]) => (
-                    <div key={category} className="space-y-3 rounded-xl border border-stone-200 bg-stone-50/80 p-4">
-                      <div className="flex items-center justify-between gap-3">
+                  {groupedMenu.length > 0 && filteredGroupedMenu.length === 0 && !props.menuLoading ? <EmptyState text="No hay platos que coincidan con la busqueda." /> : null}
+                  {filteredGroupedMenu.map(([category, items]) => (
+                    <div key={category} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+                      <div className="flex items-center justify-between gap-3 border-b border-stone-200 px-4 py-4 sm:px-5">
                         <div>
                           <h3 className="text-sm font-semibold text-stone-900">{category}</h3>
                           <p className="mt-1 text-xs text-stone-500">{items.length} platos en esta categoria</p>
                         </div>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-stone-600">{items.length}</span>
+                        <span className="rounded-md border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-medium text-stone-600">{items.length}</span>
                       </div>
-                      <div className="space-y-3">
+                      <div className="divide-y divide-stone-200">
                         {[...items].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((item, index) => (
-                          <article key={item.id} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm shadow-stone-100/50">
+                          <article key={item.id} className="px-4 py-4 sm:px-5">
                             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="text-sm font-semibold text-stone-900">{item.name}</p>
-                                  <Badge active={item.available} activeLabel="Visible" inactiveLabel="Oculto" />
+                              <div className="flex min-w-0 flex-1 gap-4">
+                                <div className="flex h-[72px] w-[72px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-stone-200 bg-stone-50">
+                                  {item.imageUrl ? (
+                                    <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <span className="px-3 text-center text-xs text-stone-400">Sin imagen</span>
+                                  )}
                                 </div>
-                                <p className="mt-1 text-sm text-stone-500">{item.description || 'Sin descripcion.'}</p>
-                                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-stone-500">
-                                  <span>{item.price.toFixed(2)} EUR</span>
-                                  <span>Ingredientes: {item.ingredients.length ? item.ingredients.join(', ') : 'Sin definir'}</span>
-                                  <span>Alergenos: {item.allergens.length ? item.allergens.join(', ') : 'Sin definir'}</span>
+
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-semibold text-stone-900">{item.name}</p>
+                                    <Badge active={item.available} activeLabel="Visible" inactiveLabel="Oculto" />
+                                    <span className="rounded-md border border-stone-200 bg-stone-50 px-2 py-1 text-xs font-medium text-stone-700">{item.price.toFixed(2)} EUR</span>
+                                  </div>
+                                  <p className="mt-1 text-sm leading-6 text-stone-500">{item.description || 'Sin descripcion.'}</p>
+
+                                  <div className="mt-3 grid gap-2 text-xs text-stone-500 sm:grid-cols-2">
+                                    <InfoRow label="Ingredientes" value={item.ingredients.length ? item.ingredients.join(', ') : 'Sin definir'} />
+                                    <InfoRow label="Alergenos" value={item.allergens.length ? item.allergens.join(', ') : 'Sin definir'} />
+                                    <InfoRow label="Etiquetas" value={item.dietary.length ? item.dietary.join(', ') : 'Sin definir'} />
+                                    <InfoRow label="Orden" value={`${(item.sortOrder ?? index) + 1}`} />
+                                  </div>
                                 </div>
                               </div>
-                              <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+
+                              <div className="grid gap-2 sm:grid-cols-3 xl:w-[252px] xl:grid-cols-2">
                                 <SquareButton icon={<ArrowUp size={16} />} disabled={index === 0 || props.isSaving} onClick={() => void props.onMoveItem(item.id, 'up')} />
                                 <SquareButton icon={<ArrowDown size={16} />} disabled={index === items.length - 1 || props.isSaving} onClick={() => void props.onMoveItem(item.id, 'down')} />
                                 <ActionButton icon={<Pencil size={15} />} label="Editar" onClick={() => setSelectedItemId(item.id)} />
@@ -452,6 +496,7 @@ function ToolbarButton({ icon, label, onClick }: { icon: React.ReactNode; label:
 function Messages({ values }: { values: Array<string | null | undefined> }) { const list = values.filter(Boolean) as string[]; if (!list.length) return null; return <div className="space-y-2 px-6 py-4 text-sm">{list.map((value, index) => <p key={`${value}-${index}`} className={`rounded-lg px-3 py-2 ${index === list.length - 1 && values[values.length - 1] ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{value}</p>)}</div>; }
 function EmptyState({ text }: { text: string }) { return <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-4 py-8 text-sm text-stone-500">{text}</div>; }
 function Badge({ active, activeLabel = 'Activa', inactiveLabel = 'Desactivada' }: { active: boolean; activeLabel?: string; inactiveLabel?: string }) { return <span className={`rounded-md px-2 py-1 text-xs font-medium ${active ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-600'}`}>{active ? activeLabel : inactiveLabel}</span>; }
+function InfoRow({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2"><p className="text-[11px] font-medium text-stone-500">{label}</p><p className="mt-1 line-clamp-2 text-xs text-stone-700">{value}</p></div>; }
 function InlineLoader({ text = 'Actualizando' }: { text?: string }) { return <div className="inline-flex items-center gap-2 text-sm text-stone-500"><Loader2 size={16} className="animate-spin" />{text}</div>; }
 function ActionButton({ icon, label, onClick }: { icon?: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-50 sm:w-auto">{icon}{label}</button>; }
 function IconDangerButton({ icon, onClick }: { icon: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50 sm:h-9 sm:w-9">{icon}</button>; }
