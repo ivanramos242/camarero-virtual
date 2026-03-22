@@ -113,6 +113,10 @@ function getSessionDetailsStorageKey(tableNumber: string) {
   return `dining-session:${tableNumber || 'unknown'}`;
 }
 
+function isValidReviewEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 function upsertOrder(orderList: PersistedOrder[], nextOrder: PersistedOrder) {
   return [nextOrder, ...orderList.filter((order) => order.id !== nextOrder.id)];
 }
@@ -473,8 +477,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState('Cliente');
   const [dinersCount, setDinersCount] = useState(1);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [reviewConsent, setReviewConsent] = useState(false);
   const [draftClientName, setDraftClientName] = useState('');
   const [draftDinersCount, setDraftDinersCount] = useState(2);
+  const [draftCustomerEmail, setDraftCustomerEmail] = useState('');
+  const [draftReviewConsent, setDraftReviewConsent] = useState(false);
   const [isWifiModalOpen, setIsWifiModalOpen] = useState(false);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -528,7 +536,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     }
 
     try {
-      const parsedSession = JSON.parse(savedSession) as { clientName?: string; dinersCount?: number };
+      const parsedSession = JSON.parse(savedSession) as {
+        clientName?: string;
+        dinersCount?: number;
+        customerEmail?: string;
+        reviewConsent?: boolean;
+      };
 
       if (parsedSession.clientName?.trim()) {
         setClientName(parsedSession.clientName.trim());
@@ -539,6 +552,17 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         const nextDinersCount = Math.max(1, parsedSession.dinersCount);
         setDinersCount(nextDinersCount);
         setDraftDinersCount(nextDinersCount);
+      }
+
+      if (typeof parsedSession.reviewConsent === 'boolean') {
+        setReviewConsent(parsedSession.reviewConsent);
+        setDraftReviewConsent(parsedSession.reviewConsent);
+      }
+
+      if (parsedSession.customerEmail?.trim()) {
+        const nextEmail = parsedSession.customerEmail.trim().toLowerCase();
+        setCustomerEmail(nextEmail);
+        setDraftCustomerEmail(nextEmail);
       }
 
       setIsSessionModalOpen(false);
@@ -629,15 +653,23 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
   const handleSessionDetailsSubmit = useCallback(() => {
     const trimmedName = draftClientName.trim();
+    const trimmedEmail = draftCustomerEmail.trim().toLowerCase();
 
     if (!trimmedName || !tableNumber) {
       return;
     }
 
+    if (draftReviewConsent && !isValidReviewEmail(trimmedEmail)) {
+      return;
+    }
+
     const nextDinersCount = Math.max(1, draftDinersCount);
+    const nextReviewConsent = draftReviewConsent && Boolean(trimmedEmail);
 
     setClientName(trimmedName);
     setDinersCount(nextDinersCount);
+    setCustomerEmail(nextReviewConsent ? trimmedEmail : '');
+    setReviewConsent(nextReviewConsent);
     setIsSessionModalOpen(false);
 
     if (typeof window !== 'undefined') {
@@ -646,10 +678,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         JSON.stringify({
           clientName: trimmedName,
           dinersCount: nextDinersCount,
+          customerEmail: nextReviewConsent ? trimmedEmail : '',
+          reviewConsent: nextReviewConsent,
         }),
       );
     }
-  }, [draftClientName, draftDinersCount, tableNumber]);
+  }, [draftClientName, draftCustomerEmail, draftDinersCount, draftReviewConsent, tableNumber]);
 
   const handleClientNameChange = useCallback(
     (value: string) => {
@@ -662,11 +696,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           JSON.stringify({
             clientName: value.trim(),
             dinersCount,
+            customerEmail: reviewConsent ? customerEmail : '',
+            reviewConsent,
           }),
         );
       }
     },
-    [dinersCount, tableNumber],
+    [customerEmail, dinersCount, reviewConsent, tableNumber],
   );
 
   const handleDinersChange = useCallback(
@@ -681,11 +717,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           JSON.stringify({
             clientName: clientName.trim() || 'Cliente',
             dinersCount: nextValue,
+            customerEmail: reviewConsent ? customerEmail : '',
+            reviewConsent,
           }),
         );
       }
     },
-    [clientName, tableNumber],
+    [clientName, customerEmail, reviewConsent, tableNumber],
   );
 
   const handleConfirmOrder = useCallback(
@@ -711,6 +749,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           tableNumber,
           clientName: nextClientName.trim() || 'Cliente',
           diners: Math.max(1, nextDiners),
+          customerEmail: reviewConsent ? customerEmail.trim().toLowerCase() : '',
+          reviewConsent,
           source: itemsOverride ? 'voice' : 'manual',
           items: itemsToSubmit.map((item) => ({
             menuItemId: item.menuItem.id,
@@ -730,7 +770,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         setIsSending(false);
       }
     },
-    [cartItems, setOrders, tableNumber],
+    [cartItems, customerEmail, reviewConsent, setOrders, tableNumber],
   );
 
   const voiceSession = useLiveSession({
@@ -787,7 +827,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         isOpen={isWifiModalOpen}
         ssid={branding.wifiSsid}
         password={branding.wifiPassword}
-        onContinue={() => {
+        onClose={() => {
           setIsWifiModalOpen(false);
           setIsSessionModalOpen(true);
         }}
@@ -795,9 +835,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       <SessionDetailsModal
         clientName={draftClientName}
         dinersCount={draftDinersCount}
+        customerEmail={draftCustomerEmail}
+        reviewConsent={draftReviewConsent}
         isOpen={isSessionModalOpen}
         onClientNameChange={setDraftClientName}
         onDinersChange={setDraftDinersCount}
+        onCustomerEmailChange={setDraftCustomerEmail}
+        onReviewConsentChange={setDraftReviewConsent}
         onConfirm={handleSessionDetailsSubmit}
       />
 
@@ -991,9 +1035,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 interface SessionDetailsModalProps {
   clientName: string;
   dinersCount: number;
+  customerEmail: string;
+  reviewConsent: boolean;
   isOpen: boolean;
   onClientNameChange: (value: string) => void;
   onDinersChange: (value: number) => void;
+  onCustomerEmailChange: (value: string) => void;
+  onReviewConsentChange: (value: boolean) => void;
   onConfirm: () => void;
 }
 
@@ -1001,87 +1049,38 @@ interface WifiAccessModalProps {
   isOpen: boolean;
   ssid: string;
   password: string;
-  onContinue: () => void;
+  onClose: () => void;
 }
 
-function WifiAccessModal({ isOpen, ssid, password, onContinue }: WifiAccessModalProps) {
-  const [copiedField, setCopiedField] = useState<'ssid' | 'password' | 'all' | null>(null);
-
-  useEffect(() => {
-    if (!copiedField) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCopiedField(null);
-    }, 1800);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [copiedField]);
-
+function WifiAccessModal({ isOpen, ssid, password, onClose }: WifiAccessModalProps) {
   if (!isOpen) {
     return null;
   }
 
-  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  const isAppleDevice = /iPhone|iPad|iPod|Macintosh/i.test(userAgent);
-  const canAttemptDirectWifi = !isAppleDevice;
-  const wifiUri = `WIFI:T:WPA;S:${ssid};P:${password};;`;
-
-  const copyText = async (value: string, field: 'ssid' | 'password' | 'all') => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedField(field);
-    } catch {
-      setCopiedField(null);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6">
       <div className="w-full max-w-md overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-xl shadow-stone-950/10 sm:rounded-xl">
-        <div className="border-b border-stone-200 px-5 py-5 sm:px-6">
-          <h2 className="text-lg font-semibold text-stone-900">Conecta el Wi-Fi del restaurante</h2>
-          <p className="mt-1 text-sm leading-6 text-stone-600">
-            Antes de empezar, te dejamos la red y la contrasena listas para conectar o copiar.
-          </p>
+        <div className="flex items-start justify-between gap-3 border-b border-stone-200 px-5 py-5 sm:px-6">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-900">Wi-Fi del restaurante</h2>
+            <p className="mt-1 text-sm leading-6 text-stone-600">
+              Te dejamos la red y la contrasena antes de empezar.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 text-stone-700 transition hover:bg-stone-50">
+            <X size={16} />
+          </button>
         </div>
 
         <div className="space-y-4 px-5 py-5 sm:px-6 sm:py-6">
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Red</p>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-semibold text-stone-900">{ssid}</p>
-              <button type="button" onClick={() => { void copyText(ssid, 'ssid'); }} className="rounded-lg border border-stone-300 px-3 py-2 text-xs text-stone-700 transition hover:bg-white">Copiar</button>
-            </div>
+            <p className="mt-2 min-w-0 truncate text-sm font-semibold text-stone-900">{ssid}</p>
           </div>
 
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">Contrasena</p>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <p className="min-w-0 truncate text-sm font-semibold text-stone-900">{password || 'Sin contrasena'}</p>
-              <button type="button" onClick={() => { void copyText(password, 'password'); }} className="rounded-lg border border-stone-300 px-3 py-2 text-xs text-stone-700 transition hover:bg-white">Copiar</button>
-            </div>
-          </div>
-
-          <div className="grid gap-2">
-            {canAttemptDirectWifi ? (
-              <button type="button" onClick={() => { window.location.href = wifiUri; }} className="inline-flex w-full items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black">
-                Intentar conectar
-              </button>
-            ) : (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                En iPhone, iPad y Safari esta conexion directa no suele funcionar. Copia los datos y conéctate desde Ajustes &gt; Wi‑Fi.
-              </div>
-            )}
-            <button type="button" onClick={() => { void copyText(`Red: ${ssid}\nContrasena: ${password}`, 'all'); }} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">
-              {copiedField === 'all' ? 'Acceso copiado' : 'Copiar acceso completo'}
-            </button>
-            <button type="button" onClick={onContinue} className="inline-flex w-full items-center justify-center rounded-lg border border-stone-300 px-4 py-3 text-sm text-stone-700 transition hover:bg-stone-50">
-              Continuar sin conectar
-            </button>
+            <p className="mt-2 min-w-0 truncate text-sm font-semibold text-stone-900">{password || 'Sin contrasena'}</p>
           </div>
         </div>
       </div>
@@ -1092,9 +1091,13 @@ function WifiAccessModal({ isOpen, ssid, password, onContinue }: WifiAccessModal
 function SessionDetailsModal({
   clientName,
   dinersCount,
+  customerEmail,
+  reviewConsent,
   isOpen,
   onClientNameChange,
   onDinersChange,
+  onCustomerEmailChange,
+  onReviewConsentChange,
   onConfirm,
 }: SessionDetailsModalProps) {
   if (!isOpen) {
@@ -1102,7 +1105,9 @@ function SessionDetailsModal({
   }
 
   const dinersOptions = [1, 2, 3, 4, 5, 6, 7];
-  const canContinue = clientName.trim().length > 0;
+  const trimmedEmail = customerEmail.trim();
+  const hasValidReviewEmail = isValidReviewEmail(trimmedEmail);
+  const canContinue = clientName.trim().length > 0 && (!reviewConsent || hasValidReviewEmail);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-stone-950/45 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6">
@@ -1155,6 +1160,49 @@ function SessionDetailsModal({
                 );
               })}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-stone-200 bg-stone-50/80 p-4">
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={reviewConsent}
+                onChange={(event) => onReviewConsentChange(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-stone-300 text-stone-900 focus:ring-stone-900"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-stone-900">Quiero recibir un email para valorar mi experiencia</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">
+                  Es opcional y solo se usara para enviarte esa valoracion, no para promociones.
+                </span>
+              </span>
+            </label>
+
+            {reviewConsent ? (
+              <div className="mt-4 space-y-2">
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium text-stone-700">Email</span>
+                  <input
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    value={customerEmail}
+                    onChange={(event) => onCustomerEmailChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && canContinue) {
+                        event.preventDefault();
+                        onConfirm();
+                      }
+                    }}
+                    className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600"
+                    placeholder="tu@email.com"
+                  />
+                </label>
+                {!hasValidReviewEmail && trimmedEmail ? (
+                  <p className="text-xs text-red-700">Introduce un email valido para poder recibir la valoracion.</p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
 

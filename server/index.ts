@@ -56,6 +56,8 @@ const createOrderSchema = z.object({
   tableNumber: z.string().trim().min(1).max(16),
   clientName: z.string().trim().max(80).optional(),
   diners: z.coerce.number().int().min(1).max(24),
+  customerEmail: z.union([z.string().trim().email().max(160), z.literal('')]).optional(),
+  reviewConsent: z.coerce.boolean().optional(),
   source: z.enum(['voice', 'manual']).optional(),
   items: z
     .array(

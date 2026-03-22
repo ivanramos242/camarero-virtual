@@ -47,7 +47,11 @@ class AppStore extends EventEmitter {
       const parsedContent = JSON.parse(rawContent) as Partial<StoreData>;
 
       return {
-        orders: parsedContent.orders ?? [],
+        orders: (parsedContent.orders ?? []).map((order) => ({
+          ...order,
+          customerEmail: order.reviewConsent && order.customerEmail ? order.customerEmail : undefined,
+          reviewConsent: Boolean(order.reviewConsent && order.customerEmail),
+        })),
         menu: parsedContent.menu ?? parsedContent.menuCache ?? [],
         tables: parsedContent.tables ?? [],
         settings: {

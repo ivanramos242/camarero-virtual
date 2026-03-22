@@ -143,6 +143,8 @@ async function mirrorOrderToWebhook(order: PersistedOrder): Promise<SyncState> {
     notas_especiales: order.items.map((item) => item.notes).filter(Boolean).join('. '),
     comensales: order.diners,
     total_pedido: order.totalPrice,
+    email_valoracion: order.customerEmail || '',
+    acepta_valoracion_email: order.reviewConsent,
     pedido_estructurado: order,
   };
 
@@ -229,6 +231,7 @@ export async function seedLegacyOrdersFromSheetIfNeeded() {
         tableNumber: row.numero_mesa || row.número_mesa || '?',
         clientName: row.cliente || 'Cliente',
         diners: Number.parseInt(row.comensales || '1', 10) || 1,
+        reviewConsent: false,
         source: 'manual',
         status,
         items,
@@ -289,11 +292,15 @@ export async function createOrder(input: CreateOrderRequest) {
   }
 
   const now = new Date().toISOString();
+  const wantsReviewEmail = Boolean(input.reviewConsent);
+  const trimmedCustomerEmail = input.customerEmail?.trim().toLowerCase() || '';
   const order: PersistedOrder = {
     id: crypto.randomUUID(),
     tableNumber: input.tableNumber.trim(),
     clientName: input.clientName?.trim() || 'Cliente',
     diners: input.diners,
+    customerEmail: wantsReviewEmail && trimmedCustomerEmail ? trimmedCustomerEmail : undefined,
+    reviewConsent: wantsReviewEmail && Boolean(trimmedCustomerEmail),
     source: input.source ?? 'manual',
     status: 'pending',
     items,

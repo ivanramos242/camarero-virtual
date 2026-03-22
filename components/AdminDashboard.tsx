@@ -330,8 +330,14 @@ export default function AdminDashboard(props: Props) {
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-stone-900">Mesa {order.tableNumber}</p>
                             <span className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-700">{orderLabel[order.status]}</span>
+                            <span className={`rounded-md px-2 py-1 text-xs ${order.reviewConsent ? 'bg-emerald-50 text-emerald-700' : 'bg-stone-100 text-stone-500'}`}>
+                              {order.reviewConsent ? 'Valoracion activada' : 'Sin valoracion'}
+                            </span>
                           </div>
                           <p className="mt-1 text-sm text-stone-500">{order.clientName} · {order.diners} comensales · {order.totalPrice.toFixed(2)} EUR</p>
+                          {order.reviewConsent && order.customerEmail ? (
+                            <p className="mt-2 text-xs font-medium text-stone-700">Email valoracion: {order.customerEmail}</p>
+                          ) : null}
                         </div>
                         <p className="text-xs text-stone-500">{new Date(order.createdAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
                       </div>
@@ -415,6 +421,7 @@ export default function AdminDashboard(props: Props) {
                   <SummaryRow label="Total pedidos cargados" value={`${props.orders.length}`} />
                   <SummaryRow label="Mesas activas" value={`${stats.activeTables}`} />
                   <SummaryRow label="Platos visibles" value={`${stats.visibleItems}`} />
+                  <SummaryRow label="Con email de valoracion" value={`${props.orders.filter((order) => order.reviewConsent && order.customerEmail).length}`} />
                   <div className="pt-2">
                     <PrimaryButton onClick={props.onRefreshOrders}>Actualizar pedidos</PrimaryButton>
                   </div>

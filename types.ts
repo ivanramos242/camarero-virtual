@@ -44,6 +44,8 @@ export interface PersistedOrder {
   tableNumber: string;
   clientName: string;
   diners: number;
+  customerEmail?: string;
+  reviewConsent: boolean;
   source: OrderSource;
   status: OrderStatus;
   items: OrderLine[];
@@ -66,6 +68,8 @@ export interface CreateOrderRequest {
   tableNumber: string;
   clientName?: string;
   diners: number;
+  customerEmail?: string;
+  reviewConsent?: boolean;
   items: CreateOrderItemInput[];
   source?: OrderSource;
 }
