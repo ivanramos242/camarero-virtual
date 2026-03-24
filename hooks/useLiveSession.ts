@@ -12,7 +12,7 @@ import type {
   OpenAiSessionTokenResponse,
   SessionTokenResponse,
 } from '../types';
-import { createOpenAiRealtimeAnswer } from '../utils/api';
+import { createOpenAiRealtimeAnswer, fetchVoiceDiagnostics } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
 
 interface UseLiveSessionProps {
@@ -115,6 +115,7 @@ export function useLiveSession({
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptRef = useRef('');
+  const hasRunDiagnosticsRef = useRef(false);
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -187,6 +188,7 @@ export function useLiveSession({
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
     transcriptRef.current = '';
+    hasRunDiagnosticsRef.current = false;
     setLastAssistantMessage('');
     setVolumeLevel(0);
     setStatus(nextStatus);
@@ -196,6 +198,25 @@ export function useLiveSession({
     addLog('system', 'Sesion cerrada.');
     resetSession('disconnected');
   }, [addLog, resetSession]);
+
+  const runVoiceDiagnostics = useCallback(async () => {
+    if (hasRunDiagnosticsRef.current) {
+      return;
+    }
+
+    hasRunDiagnosticsRef.current = true;
+
+    try {
+      const diagnostics = await fetchVoiceDiagnostics();
+      addLog(diagnostics.tokenCheck.ok ? 'system' : 'error', `Diagnostico token: ${diagnostics.tokenCheck.message}`);
+      addLog(diagnostics.liveCheck.ok ? 'system' : 'error', `Diagnostico Live: ${diagnostics.liveCheck.message}`);
+    } catch (error) {
+      addLog(
+        'error',
+        error instanceof Error ? `No se ha podido leer el diagnostico: ${error.message}` : 'No se ha podido leer el diagnostico de voz.',
+      );
+    }
+  }, [addLog]);
 
   const systemInstruction = useMemo(
     () =>
@@ -519,10 +540,14 @@ export function useLiveSession({
                 ? ` Motivo: ${event.reason}.`
                 : '';
             addLog('system', `La conexion de voz de Gemini se ha cerrado.${code}${reason}`);
+            if (!transcriptRef.current) {
+              void runVoiceDiagnostics();
+            }
             resetSession('disconnected');
           },
           onerror: (error) => {
             addLog('error', error.message || 'Se ha producido un error en la sesion de Gemini.');
+            void runVoiceDiagnostics();
             resetSession('error');
           },
         },
@@ -687,9 +712,10 @@ export function useLiveSession({
       const message =
         connectionError instanceof Error ? connectionError.message : 'No se pudo iniciar la sesion de voz.';
       addLog('error', message);
+      void runVoiceDiagnostics();
       resetSession('error');
     }
-  }, [addLog, branding.assistantName, branding.voiceEnabled, connectGemini, connectOpenAi, createSessionToken, isMuted, resetSession]);
+  }, [addLog, branding.assistantName, branding.voiceEnabled, connectGemini, connectOpenAi, createSessionToken, isMuted, resetSession, runVoiceDiagnostics]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 

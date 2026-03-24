@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import cookieParser from 'cookie-parser';
 import express from 'express';
 import multer from 'multer';
@@ -267,6 +267,135 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
   voice: serverConfig.openAiVoice,
 });
 
+const runGeminiLiveDiagnostics = async () => {
+  if (!serverConfig.geminiApiKey) {
+    return {
+      provider: publicBranding.voiceProvider,
+      geminiConfigured: false,
+      openAiConfigured: Boolean(serverConfig.openAiApiKey),
+      configuredModel: serverConfig.geminiLiveModel,
+      tokenCheck: {
+        ok: false,
+        message: 'No hay clave Gemini configurada.',
+      },
+      liveCheck: {
+        ok: false,
+        message: 'No se puede probar Gemini Live sin clave.',
+      },
+    };
+  }
+
+  let tokenCheck: { ok: boolean; message: string } = {
+    ok: false,
+    message: 'No se ha probado el token.',
+  };
+
+  try {
+    await buildGeminiSessionToken();
+    tokenCheck = {
+      ok: true,
+      message: 'El servidor puede crear un token efimero de Gemini.',
+    };
+  } catch (error) {
+    tokenCheck = {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Gemini no ha permitido crear el token efimero.',
+    };
+  }
+
+  let liveCheck: { ok: boolean; message: string } = {
+    ok: false,
+    message: 'No se ha probado la sesion Live.',
+  };
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: serverConfig.geminiApiKey,
+      httpOptions: {
+        apiVersion: 'v1alpha',
+      },
+    });
+
+    liveCheck = await new Promise<{ ok: boolean; message: string }>((resolve) => {
+      let settled = false;
+      let timeoutId: NodeJS.Timeout | null = null;
+
+      const finish = (payload: { ok: boolean; message: string }) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        resolve(payload);
+      };
+
+      timeoutId = setTimeout(() => {
+        finish({
+          ok: false,
+          message: 'Timeout al abrir la sesion Live desde servidor.',
+        });
+      }, 8_000);
+
+      void ai.live
+        .connect({
+          model: serverConfig.geminiLiveModel,
+          config: {
+            responseModalities: [Modality.AUDIO],
+          },
+          callbacks: {
+            onopen: () => {
+              finish({
+                ok: true,
+                message: 'El servidor ha abierto una sesion Gemini Live correctamente.',
+              });
+            },
+            onclose: (event) => {
+              finish({
+                ok: false,
+                message: `Gemini Live ha cerrado la sesion de prueba. Codigo ${event.code}${event.reason ? `, motivo: ${event.reason}` : ''}.`,
+              });
+            },
+            onerror: (error) => {
+              finish({
+                ok: false,
+                message: error.message || 'Gemini Live ha fallado durante la prueba de conexion.',
+              });
+            },
+            onmessage: () => undefined,
+          },
+        })
+        .then((session) => {
+          if (!settled) {
+            session.close();
+          }
+        })
+        .catch((error) => {
+          finish({
+            ok: false,
+            message: error instanceof Error ? error.message : 'No se ha podido abrir la sesion Live desde servidor.',
+          });
+        });
+    });
+  } catch (error) {
+    liveCheck = {
+      ok: false,
+      message: error instanceof Error ? error.message : 'No se ha podido inicializar la prueba Live.',
+    };
+  }
+
+  return {
+    provider: publicBranding.voiceProvider,
+    geminiConfigured: true,
+    openAiConfigured: Boolean(serverConfig.openAiApiKey),
+    configuredModel: serverConfig.geminiLiveModel,
+    tokenCheck,
+    liveCheck,
+  };
+};
+
 const getAdminSettings = async (): Promise<AdminSettings> => {
   const store = await appStore.read();
   return {
@@ -292,6 +421,45 @@ app.use('/uploads', express.static(serverConfig.uploadsDirPath));
 
 app.get('/api/config', async (_request, response) => {
   response.json(await buildPublicConfig());
+});
+
+app.get('/api/debug/voice', async (_request, response) => {
+  try {
+    if (!serverConfig.geminiApiKey) {
+      response.json({
+        provider: publicBranding.voiceProvider,
+        geminiConfigured: false,
+        openAiConfigured: Boolean(serverConfig.openAiApiKey),
+        configuredModel: serverConfig.geminiLiveModel,
+        tokenCheck: {
+          ok: false,
+          message: 'Gemini no esta configurado.',
+        },
+        liveCheck: {
+          ok: false,
+          message: 'No se ha ejecutado la prueba Live.',
+        },
+      });
+      return;
+    }
+
+    response.json(await runGeminiLiveDiagnostics());
+  } catch (error) {
+    response.status(500).json({
+      provider: publicBranding.voiceProvider,
+      geminiConfigured: Boolean(serverConfig.geminiApiKey),
+      openAiConfigured: Boolean(serverConfig.openAiApiKey),
+      configuredModel: serverConfig.geminiLiveModel,
+      tokenCheck: {
+        ok: false,
+        message: 'No se ha podido completar el diagnostico.',
+      },
+      liveCheck: {
+        ok: false,
+        message: error instanceof Error ? error.message : 'Error inesperado en el diagnostico.',
+      },
+    });
+  }
 });
 
 app.get('/api/menu', async (_request, response) => {

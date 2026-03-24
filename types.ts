@@ -227,3 +227,18 @@ export interface LogMessage {
   text: string;
   timestamp: number;
 }
+
+export interface VoiceDiagnosticsResponse {
+  provider: 'gemini' | 'openai' | 'none';
+  geminiConfigured: boolean;
+  openAiConfigured: boolean;
+  configuredModel?: string;
+  tokenCheck: {
+    ok: boolean;
+    message: string;
+  };
+  liveCheck: {
+    ok: boolean;
+    message: string;
+  };
+}

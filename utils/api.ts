@@ -18,6 +18,7 @@ import type {
   TableQrResponse,
   TablesQrBatchResponse,
   UploadImageResponse,
+  VoiceDiagnosticsResponse,
   UpdateAdminTableRequest,
   UpdateAdminTableStatusRequest,
   UpdateAdminSettingsRequest,
@@ -251,6 +252,12 @@ export async function uploadAdminImageOnApi(file: File) {
 export async function createVoiceSessionToken() {
   return request<SessionTokenResponse>('/api/session/token', {
     method: 'POST',
+  });
+}
+
+export async function fetchVoiceDiagnostics() {
+  return request<VoiceDiagnosticsResponse>('/api/debug/voice', {
+    method: 'GET',
   });
 }
 
