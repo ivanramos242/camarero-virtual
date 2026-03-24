@@ -229,7 +229,7 @@ const requireAdminAuth: express.RequestHandler = (request, response, next) => {
 
 const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
-  const newSessionExpiresAt = new Date(Date.now() + 1000 * 60).toISOString();
+  const newSessionExpiresAt = new Date(Date.now() + 1000 * 60 * 5).toISOString();
 
   const ai = new GoogleGenAI({
     apiKey: serverConfig.geminiApiKey,
@@ -240,12 +240,18 @@ const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
 
   const token = await ai.authTokens.create({
     config: {
-      uses: 1,
+      uses: 3,
       expireTime: expiresAt,
       newSessionExpireTime: newSessionExpiresAt,
       liveConnectConstraints: {
         model: serverConfig.geminiLiveModel,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
+        },
       },
+      lockAdditionalFields: [],
     },
   });
 
@@ -344,6 +350,8 @@ const runGeminiLiveDiagnostics = async () => {
           model: serverConfig.geminiLiveModel,
           config: {
             responseModalities: [Modality.AUDIO],
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
           },
           callbacks: {
             onopen: () => {
