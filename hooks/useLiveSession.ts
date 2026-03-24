@@ -435,9 +435,9 @@ export function useLiveSession({
 
               setVolumeLevel(Math.sqrt(energy / inputData.length));
 
-              const pcmBlob = createPcmBlob(inputData);
+              const pcmAudio = createPcmBlob(inputData);
               void sessionPromise.then((session) => {
-                session.sendRealtimeInput({ media: pcmBlob });
+                session.sendRealtimeInput({ audio: pcmAudio });
               });
             };
           },
@@ -494,8 +494,12 @@ export function useLiveSession({
               addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
             }
           },
-          onclose: () => {
-            addLog('system', 'La conexion de voz de Gemini se ha cerrado.');
+          onclose: (event) => {
+            const reason =
+              typeof event?.reason === 'string' && event.reason.trim().length > 0
+                ? ` Motivo: ${event.reason}.`
+                : '';
+            addLog('system', `La conexion de voz de Gemini se ha cerrado.${reason}`);
             resetSession('disconnected');
           },
           onerror: (error) => {
