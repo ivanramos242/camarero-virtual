@@ -30,7 +30,7 @@ import type {
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
 } from '../types.js';
-import { publicBranding, serverConfig } from './config.js';
+import { publicBranding, serverConfig, serverSecretsState } from './config.js';
 import {
   createMenuItem,
   deleteMenuItem,
@@ -708,6 +708,13 @@ app.post('/api/session/token', async (_request, response) => {
         return;
       } catch (error) {
         console.error('[voice] Gemini no ha podido abrir sesion, se intentara OpenAI:', error);
+
+        if (!serverConfig.openAiApiKey) {
+          response.status(502).json({
+            message: 'Gemini esta configurado pero la clave no es valida o no tiene acceso al modelo Live.',
+          });
+          return;
+        }
       }
     }
 
@@ -785,6 +792,10 @@ if (serverConfig.isProduction) {
 const bootstrap = async () => {
   await seedLegacyOrdersFromSheetIfNeeded();
   await getMenu();
+
+  console.log(
+    `[config] Voz: ${publicBranding.voiceProvider} | Gemini: ${serverSecretsState.hasGeminiApiKey ? 'configurado' : 'ausente'} | OpenAI: ${serverSecretsState.hasOpenAiApiKey ? 'configurado' : 'ausente'}`,
+  );
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     console.log(`Servidor escuchando en http://${serverConfig.host}:${serverConfig.port}`);

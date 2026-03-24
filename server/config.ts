@@ -4,6 +4,39 @@ import 'dotenv/config';
 
 import type { AppBranding } from '../types.js';
 
+const normalizeApiKey = (rawValue?: string) => {
+  const trimmedValue = rawValue?.trim();
+  if (!trimmedValue) {
+    return '';
+  }
+
+  const normalizedValue = trimmedValue
+    .replace(/^["']|["']$/g, '')
+    .replace(/^apikey[:=\s]*/i, '')
+    .trim();
+
+  const invalidMarkers = [
+    'pega_aqui',
+    'your_',
+    'tu_',
+    'example',
+    'xxxx',
+    'test',
+    'demo',
+    'placeholder',
+    'borrada',
+  ];
+
+  const lowerValue = normalizedValue.toLowerCase();
+  const looksLikePlaceholder =
+    invalidMarkers.some((marker) => lowerValue.includes(marker)) ||
+    lowerValue.includes('api key') ||
+    lowerValue.includes('<') ||
+    lowerValue.includes('>');
+
+  return looksLikePlaceholder ? '' : normalizedValue;
+};
+
 const buildCsvUrl = (explicitUrl?: string, sheetId?: string) => {
   const trimmedUrl = explicitUrl?.trim();
   if (trimmedUrl) {
@@ -36,9 +69,9 @@ export const serverConfig = {
   dataFilePath: path.join(process.cwd(), 'data', 'store.json'),
   uploadsDirPath: path.join(process.cwd(), 'data', 'uploads'),
   uploadMaxFileSizeBytes: 5 * 1024 * 1024,
-  geminiApiKey: process.env.GEMINI_API_KEY?.trim() ?? '',
+  geminiApiKey: normalizeApiKey(process.env.GEMINI_API_KEY),
   geminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-live-2.5-flash-preview',
-  openAiApiKey: process.env.OPENAI_API_KEY?.trim() ?? '',
+  openAiApiKey: normalizeApiKey(process.env.OPENAI_API_KEY),
   openAiRealtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime',
   openAiVoice: process.env.OPENAI_REALTIME_VOICE?.trim() || 'alloy',
   kitchenPassword: process.env.KITCHEN_PASSWORD?.trim() || 'ramiro-cocina',
@@ -66,4 +99,9 @@ export const publicBranding: AppBranding = {
   showWifiPopup: process.env.SHOW_WIFI_POPUP === 'true',
   wifiSsid: process.env.WIFI_SSID?.trim() || '',
   wifiPassword: process.env.WIFI_PASSWORD?.trim() || '',
+};
+
+export const serverSecretsState = {
+  hasGeminiApiKey: Boolean(serverConfig.geminiApiKey),
+  hasOpenAiApiKey: Boolean(serverConfig.openAiApiKey),
 };
