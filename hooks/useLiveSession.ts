@@ -224,9 +224,11 @@ export function useLiveSession({
         assistantName: branding.assistantName,
         restaurantName: branding.restaurantName,
         tableNumber,
+        clientName,
+        dinersCount,
         menu,
       }),
-    [branding.assistantName, branding.restaurantName, menu, tableNumber],
+    [branding.assistantName, branding.restaurantName, clientName, dinersCount, menu, tableNumber],
   );
 
   const getMenuTool: FunctionDeclaration = useMemo(

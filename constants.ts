@@ -4,27 +4,31 @@ interface SystemInstructionOptions {
   assistantName: string;
   restaurantName: string;
   tableNumber: string;
+  clientName: string;
+  dinersCount: number;
   menu: MenuItem[];
 }
 
 const BASE_SYSTEM_PROMPT = `
 Eres un camarero virtual profesional.
-Hablas siempre en español de España con un tono amable, claro y breve.
-Tu objetivo es ayudar al cliente a pedir con precisión y sin inventarte platos.
+Hablas siempre en espanol de Espana con un tono amable, claro y breve.
+Tu objetivo es ayudar al cliente a pedir con precision y sin inventarte platos.
 
 Reglas de herramientas:
-- Usa "setDiners" cuando el cliente confirme cuántas personas hay en la mesa.
-- Usa "addToOrder" solo cuando el cliente pida añadir algo nuevo.
+- Usa "setDiners" solo si el cliente corrige el nombre o el numero de comensales ya registrados.
+- Usa "addToOrder" solo cuando el cliente pida anadir algo nuevo.
 - Usa "removeFromOrder" cuando el cliente quite o corrija un plato.
-- Usa "confirmOrder" solo cuando el cliente confirme que el pedido está correcto.
-- Usa "endSession" justo después de cerrar la conversación con una despedida breve.
+- Usa "confirmOrder" solo cuando el cliente confirme que el pedido esta correcto.
+- Usa "endSession" justo despues de cerrar la conversacion con una despedida breve.
 
-Reglas de conversación:
-- Saluda tú primero al iniciar la sesión.
+Reglas de conversacion:
+- Saluda tu primero al iniciar la sesion.
+- Ya sabes el nombre del cliente y cuantos comensales hay por el formulario inicial.
+- No vuelvas a preguntar por el nombre ni por el numero de comensales al empezar, salvo que el cliente quiera corregirlos.
 - Si el cliente pide algo que no existe, dilo con claridad y ofrece una alternativa real.
 - Antes de confirmar el pedido, haz un resumen verbal corto.
 - No repitas herramientas si ya se ejecutaron correctamente.
-- Si hay confusión o ruido, pide una aclaración breve.
+- Si hay confusion o ruido, pide una aclaracion breve.
 `.trim();
 
 const normaliseList = (values: string[]) => values.map((value) => value.trim()).filter(Boolean);
@@ -33,6 +37,8 @@ export function buildSystemInstruction({
   assistantName,
   restaurantName,
   tableNumber,
+  clientName,
+  dinersCount,
   menu,
 }: SystemInstructionOptions): string {
   const availableItems = menu.filter((item) => item.available);
@@ -53,7 +59,7 @@ export function buildSystemInstruction({
         const dietary = normaliseList(item.dietary);
 
         if (allergens.length > 0) {
-          tags.push(`Alérgenos: ${allergens.join(', ')}`);
+          tags.push(`Alergenos: ${allergens.join(', ')}`);
         }
 
         if (dietary.length > 0) {
@@ -61,21 +67,28 @@ export function buildSystemInstruction({
         }
 
         const suffix = tags.length > 0 ? ` [${tags.join(' | ')}]` : '';
-        return `- ${item.name} (${item.price.toFixed(2)} €): ${item.description}${suffix}`;
+        return `- ${item.name} (${item.price.toFixed(2)} EUR): ${item.description}${suffix}`;
       });
 
       return `${category}:\n${lines.join('\n')}`;
     })
     .join('\n\n');
 
+  const safeClientName = clientName.trim();
+  const safeDinersCount = Math.max(1, dinersCount);
+
   return [
     BASE_SYSTEM_PROMPT,
     `Nombre del asistente: ${assistantName}.`,
     `Nombre del restaurante: ${restaurantName}.`,
     `Mesa activa: ${tableNumber}.`,
-    'Menú disponible actual:',
+    `Nombre del cliente actual: ${safeClientName || 'No indicado'}.`,
+    `Numero de comensales actual: ${safeDinersCount}.`,
+    'Menu disponible actual:',
     menuSections || '- No hay platos disponibles en este momento.',
     'Importante: solo puedes trabajar con los platos listados arriba y debes usar sus nombres exactos.',
-    `Saludo sugerido: "Hola, soy ${assistantName}. ¿Cuántas personas sois en la mesa?"`,
+    safeClientName
+      ? `Saludo sugerido: "Hola ${safeClientName}, soy ${assistantName}. Ya tengo registrada tu mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`
+      : `Saludo sugerido: "Hola, soy ${assistantName}. Ya tengo registrada la mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`,
   ].join('\n\n');
 }
