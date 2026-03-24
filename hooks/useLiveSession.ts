@@ -409,6 +409,8 @@ export function useLiveSession({
           responseModalities: [Modality.AUDIO],
           systemInstruction,
           tools: geminiTools,
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -450,6 +452,22 @@ export function useLiveSession({
               const assistantText = textParts.join(' ').trim();
               setLastAssistantMessage(assistantText);
               addLog('assistant', assistantText);
+            }
+
+            const inputTranscript = message.serverContent?.inputTranscription?.text?.trim();
+            if (inputTranscript) {
+              addLog('system', `Tu voz: ${inputTranscript}`);
+            }
+
+            const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
+            if (outputTranscript) {
+              setLastAssistantMessage(outputTranscript);
+              addLog('assistant', outputTranscript);
+            }
+
+            const turnCompleteReason = message.serverContent?.turnCompleteReason;
+            if (turnCompleteReason) {
+              addLog('system', `Gemini ha cerrado un turno: ${turnCompleteReason}.`);
             }
 
             if (message.toolCall) {
@@ -495,11 +513,12 @@ export function useLiveSession({
             }
           },
           onclose: (event) => {
+            const code = typeof event?.code === 'number' ? ` Codigo: ${event.code}.` : '';
             const reason =
               typeof event?.reason === 'string' && event.reason.trim().length > 0
                 ? ` Motivo: ${event.reason}.`
                 : '';
-            addLog('system', `La conexion de voz de Gemini se ha cerrado.${reason}`);
+            addLog('system', `La conexion de voz de Gemini se ha cerrado.${code}${reason}`);
             resetSession('disconnected');
           },
           onerror: (error) => {

@@ -28,7 +28,7 @@ Variables importantes:
 - `KITCHEN_PASSWORD`: contrasena del personal.
 - `ADMIN_PASSWORD`: contrasena del panel de administracion.
 - `GEMINI_API_KEY`: clave del servidor para sesiones de voz.
-- `GEMINI_LIVE_MODEL`: modelo Live que se quiere usar.
+- `GEMINI_LIVE_MODEL`: modelo Live que se quiere usar. Recomendado: `gemini-2.5-flash-native-audio-preview-12-2025`.
 - `MENU_CSV_URL`: URL CSV publica de la carta.
 - `ORDERS_CSV_URL`: URL CSV publica de pedidos legacy para import inicial.
 - `N8N_WEBHOOK_URL`: webhook para replicar pedidos y estados.

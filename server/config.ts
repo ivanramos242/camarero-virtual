@@ -4,6 +4,11 @@ import 'dotenv/config';
 
 import type { AppBranding } from '../types.js';
 
+const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const deprecatedGeminiLiveModelMap: Record<string, string> = {
+  'gemini-live-2.5-flash-preview': DEFAULT_GEMINI_LIVE_MODEL,
+};
+
 const normalizeApiKey = (rawValue?: string) => {
   const trimmedValue = rawValue?.trim();
   if (!trimmedValue) {
@@ -56,6 +61,15 @@ const toPort = (rawValue: string | undefined, fallback: number) => {
   return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : fallback;
 };
 
+const resolveGeminiLiveModel = (rawValue?: string) => {
+  const trimmedValue = rawValue?.trim();
+  if (!trimmedValue) {
+    return DEFAULT_GEMINI_LIVE_MODEL;
+  }
+
+  return deprecatedGeminiLiveModelMap[trimmedValue] ?? trimmedValue;
+};
+
 export const serverConfig = {
   isProduction: process.env.NODE_ENV === 'production',
   host: '0.0.0.0',
@@ -70,7 +84,7 @@ export const serverConfig = {
   uploadsDirPath: path.join(process.cwd(), 'data', 'uploads'),
   uploadMaxFileSizeBytes: 5 * 1024 * 1024,
   geminiApiKey: normalizeApiKey(process.env.GEMINI_API_KEY),
-  geminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-live-2.5-flash-preview',
+  geminiLiveModel: resolveGeminiLiveModel(process.env.GEMINI_LIVE_MODEL),
   openAiApiKey: normalizeApiKey(process.env.OPENAI_API_KEY),
   openAiRealtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime',
   openAiVoice: process.env.OPENAI_REALTIME_VOICE?.trim() || 'alloy',
@@ -104,4 +118,12 @@ export const publicBranding: AppBranding = {
 export const serverSecretsState = {
   hasGeminiApiKey: Boolean(serverConfig.geminiApiKey),
   hasOpenAiApiKey: Boolean(serverConfig.openAiApiKey),
+};
+
+export const serverVoiceState = {
+  configuredGeminiLiveModel: process.env.GEMINI_LIVE_MODEL?.trim() || DEFAULT_GEMINI_LIVE_MODEL,
+  effectiveGeminiLiveModel: serverConfig.geminiLiveModel,
+  geminiLiveModelWasMigrated:
+    Boolean(process.env.GEMINI_LIVE_MODEL?.trim()) &&
+    serverConfig.geminiLiveModel !== process.env.GEMINI_LIVE_MODEL?.trim(),
 };

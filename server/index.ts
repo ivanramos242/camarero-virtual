@@ -30,7 +30,7 @@ import type {
   UpdateMenuItemAvailabilityRequest,
   UpdateMenuItemRequest,
 } from '../types.js';
-import { publicBranding, serverConfig, serverSecretsState } from './config.js';
+import { publicBranding, serverConfig, serverSecretsState, serverVoiceState } from './config.js';
 import {
   createMenuItem,
   deleteMenuItem,
@@ -794,8 +794,14 @@ const bootstrap = async () => {
   await getMenu();
 
   console.log(
-    `[config] Voz: ${publicBranding.voiceProvider} | Gemini: ${serverSecretsState.hasGeminiApiKey ? 'configurado' : 'ausente'} | OpenAI: ${serverSecretsState.hasOpenAiApiKey ? 'configurado' : 'ausente'}`,
+    `[config] Voz: ${publicBranding.voiceProvider} | Gemini: ${serverSecretsState.hasGeminiApiKey ? 'configurado' : 'ausente'} | OpenAI: ${serverSecretsState.hasOpenAiApiKey ? 'configurado' : 'ausente'} | Modelo Gemini: ${serverVoiceState.effectiveGeminiLiveModel}`,
   );
+
+  if (serverVoiceState.geminiLiveModelWasMigrated) {
+    console.warn(
+      `[voice] Modelo Gemini migrado automaticamente de ${serverVoiceState.configuredGeminiLiveModel} a ${serverVoiceState.effectiveGeminiLiveModel}.`,
+    );
+  }
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     console.log(`Servidor escuchando en http://${serverConfig.host}:${serverConfig.port}`);
