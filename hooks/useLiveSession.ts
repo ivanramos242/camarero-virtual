@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
+import { EndSensitivity, FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, StartSensitivity, Type } from '@google/genai';
 
 import { buildSystemInstruction } from '../constants';
 import type {
@@ -432,8 +432,20 @@ export function useLiveSession({
           responseModalities: [Modality.AUDIO],
           systemInstruction,
           tools: geminiTools,
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+              prefixPaddingMs: 80,
+              silenceDurationMs: 400,
+            },
+          },
+          ...(branding.showDebugTools
+            ? {
+                inputAudioTranscription: {},
+                outputAudioTranscription: {},
+              }
+            : {}),
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { GoogleGenAI, Modality } from '@google/genai';
+import { EndSensitivity, GoogleGenAI, Modality, StartSensitivity } from '@google/genai';
 import cookieParser from 'cookie-parser';
 import express from 'express';
 import multer from 'multer';
@@ -247,10 +247,16 @@ const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
         model: serverConfig.geminiLiveModel,
         config: {
           responseModalities: [Modality.AUDIO],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+              prefixPaddingMs: 80,
+              silenceDurationMs: 400,
+            },
+          },
         },
-      },
+        },
       lockAdditionalFields: [],
     },
   });
@@ -350,8 +356,14 @@ const runGeminiLiveDiagnostics = async () => {
           model: serverConfig.geminiLiveModel,
           config: {
             responseModalities: [Modality.AUDIO],
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+                prefixPaddingMs: 80,
+                silenceDurationMs: 400,
+              },
+            },
           },
           callbacks: {
             onopen: () => {
