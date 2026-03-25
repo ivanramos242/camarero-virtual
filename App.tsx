@@ -1336,6 +1336,8 @@ function AssistantPanel({
           title={pressLabel}
           disabled={!isInteractive}
           data-state={orbState}
+          onSelect={(event) => event.preventDefault()}
+          onSelectStart={(event) => event.preventDefault()}
           onDoubleClick={() => {
             if (status === 'connected') {
               onDisconnect();

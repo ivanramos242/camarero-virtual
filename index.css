@@ -252,6 +252,17 @@ button {
   --voice-icon-color: #ffffff;
   position: relative;
   isolation: isolate;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.voice-orb,
+.voice-orb * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .voice-orb:hover,

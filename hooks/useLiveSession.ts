@@ -124,6 +124,27 @@ export function useLiveSession({
     modelTurnCompleteRef.current = false;
   }, []);
 
+  const teardownAudioCapture = useCallback(() => {
+    if (inputProcessorRef.current) {
+      inputProcessorRef.current.disconnect();
+      inputProcessorRef.current.onaudioprocess = null;
+      inputProcessorRef.current = null;
+    }
+
+    if (inputContextRef.current) {
+      void inputContextRef.current.close();
+      inputContextRef.current = null;
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    shouldStreamAudioRef.current = false;
+    setVolumeLevel(0);
+  }, []);
+
   const getAudioContextClass = useCallback(() => {
     return window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   }, []);
@@ -140,25 +161,12 @@ export function useLiveSession({
       activeSession?.close();
       geminiSessionRef.current = null;
 
-      if (inputProcessorRef.current) {
-        inputProcessorRef.current.disconnect();
-        inputProcessorRef.current = null;
-      }
-
       if (audioContextRef.current) {
         void audioContextRef.current.close();
         audioContextRef.current = null;
       }
 
-      if (inputContextRef.current) {
-        void inputContextRef.current.close();
-        inputContextRef.current = null;
-      }
-
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-      }
+      teardownAudioCapture();
 
       stopPlayback();
       transcriptRef.current = '';
@@ -168,7 +176,7 @@ export function useLiveSession({
       setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
       setStatusSafe(nextStatus);
     },
-    [clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback],
+    [clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -342,7 +350,7 @@ export function useLiveSession({
   );
 
   const ensureAudioPipeline = useCallback(async () => {
-    if (mediaStreamRef.current && inputProcessorRef.current) {
+    if (mediaStreamRef.current && inputProcessorRef.current && inputContextRef.current?.state !== 'closed') {
       return;
     }
 
@@ -436,6 +444,7 @@ export function useLiveSession({
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
+      await ensureAudioPipeline();
       return;
     }
 
@@ -644,6 +653,7 @@ export function useLiveSession({
 
     try {
       await ensureGeminiSession();
+      await ensureAudioPipeline();
       if (!pendingPressRef.current) {
         return;
       }
@@ -670,8 +680,9 @@ export function useLiveSession({
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
     setTurnStateSafe('processing');
     setVolumeLevel(0);
+    teardownAudioCapture();
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, setTurnStateSafe]);
+  }, [addLog, clearRecordingTimeout, setTurnStateSafe, teardownAudioCapture]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 
