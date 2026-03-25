@@ -62,6 +62,7 @@ export function useLiveSession({
   const audioContextRef = useRef<AudioContext | null>(null);
   const playbackGainRef = useRef<GainNode | null>(null);
   const playbackCompressorRef = useRef<DynamicsCompressorNode | null>(null);
+  const captureSinkRef = useRef<GainNode | null>(null);
   const inputContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const inputProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -159,6 +160,11 @@ export function useLiveSession({
       inputContextRef.current = null;
     }
 
+    if (captureSinkRef.current) {
+      captureSinkRef.current.disconnect();
+      captureSinkRef.current = null;
+    }
+
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -198,6 +204,7 @@ export function useLiveSession({
       }
       playbackGainRef.current = null;
       playbackCompressorRef.current = null;
+      captureSinkRef.current = null;
 
       teardownAudioCapture();
 
@@ -384,6 +391,30 @@ export function useLiveSession({
   );
 
   const ensureAudioPipeline = useCallback(async () => {
+    const AudioContextClass = getAudioContextClass();
+    if (!AudioContextClass) {
+      throw new Error('Este navegador no soporta audio en tiempo real.');
+    }
+
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed' || !playbackGainRef.current) {
+      const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
+      audioContextRef.current = playbackContext;
+
+      const playbackGain = playbackContext.createGain();
+      playbackGain.gain.value = PLAYBACK_GAIN;
+      const playbackCompressor = playbackContext.createDynamicsCompressor();
+      playbackCompressor.threshold.value = -18;
+      playbackCompressor.knee.value = 10;
+      playbackCompressor.ratio.value = 3;
+      playbackCompressor.attack.value = 0.008;
+      playbackCompressor.release.value = 0.08;
+      playbackGain.connect(playbackCompressor);
+      playbackCompressor.connect(playbackContext.destination);
+      playbackGainRef.current = playbackGain;
+      playbackCompressorRef.current = playbackCompressor;
+      await playbackContext.resume();
+    }
+
     if (mediaStreamRef.current && inputProcessorRef.current && inputContextRef.current?.state !== 'closed') {
       return;
     }
@@ -391,31 +422,14 @@ export function useLiveSession({
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStreamRef.current = stream;
 
-    const AudioContextClass = getAudioContextClass();
-    if (!AudioContextClass) {
-      throw new Error('Este navegador no soporta audio en tiempo real.');
-    }
-
     const captureContext = new AudioContextClass({ sampleRate: 16_000 });
-    const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
     inputContextRef.current = captureContext;
-    audioContextRef.current = playbackContext;
-
-    const playbackGain = playbackContext.createGain();
-    playbackGain.gain.value = PLAYBACK_GAIN;
-    const playbackCompressor = playbackContext.createDynamicsCompressor();
-    playbackCompressor.threshold.value = -18;
-    playbackCompressor.knee.value = 10;
-    playbackCompressor.ratio.value = 3;
-    playbackCompressor.attack.value = 0.008;
-    playbackCompressor.release.value = 0.08;
-    playbackGain.connect(playbackCompressor);
-    playbackCompressor.connect(playbackContext.destination);
-    playbackGainRef.current = playbackGain;
-    playbackCompressorRef.current = playbackCompressor;
 
     const source = captureContext.createMediaStreamSource(stream);
     const processor = captureContext.createScriptProcessor(4096, 1, 1);
+    const silentSink = captureContext.createGain();
+    silentSink.gain.value = 0;
+    captureSinkRef.current = silentSink;
     inputProcessorRef.current = processor;
 
     processor.onaudioprocess = (event) => {
@@ -439,10 +453,10 @@ export function useLiveSession({
     };
 
     source.connect(processor);
-    processor.connect(captureContext.destination);
+    processor.connect(silentSink);
+    silentSink.connect(captureContext.destination);
 
     await captureContext.resume();
-    await playbackContext.resume();
   }, [getAudioContextClass]);
 
   const finalizeTurnIfReady = useCallback(() => {
