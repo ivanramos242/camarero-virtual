@@ -1,4 +1,4 @@
-import type { MenuItem } from './types.js';
+import type { CartItem, MenuItem } from './types.js';
 
 interface SystemInstructionOptions {
   assistantName: string;
@@ -6,6 +6,7 @@ interface SystemInstructionOptions {
   tableNumber: string;
   clientName: string;
   dinersCount: number;
+  cartItems: CartItem[];
   menu: MenuItem[];
 }
 
@@ -15,11 +16,13 @@ Hablas siempre en espanol de Espana con un tono amable, claro y breve.
 Tu objetivo es ayudar al cliente a pedir con precision y sin inventarte platos.
 
 Reglas de herramientas:
+- Usa preferiblemente menuItemId exactos de la carta cuando llames a addToOrder o removeFromOrder.
 - Usa "setDiners" solo si el cliente corrige el nombre o el numero de comensales ya registrados.
 - Usa "addToOrder" solo cuando el cliente pida anadir algo nuevo.
 - Usa "removeFromOrder" cuando el cliente quite o corrija un plato.
 - Usa "confirmOrder" solo cuando el cliente confirme que el pedido esta correcto.
 - Usa "endSession" justo despues de cerrar la conversacion con una despedida breve.
+- Usa "getCurrentOrder" antes de quitar, corregir o confirmar si hay cualquier duda sobre el estado del pedido.
 - No afirmes nunca que has anadido, quitado o confirmado nada si antes no has ejecutado la herramienta correcta y esta ha devuelto exito.
 - Si una herramienta falla o el plato no coincide claramente con la carta, dilo con claridad y pide una aclaracion breve.
 
@@ -33,6 +36,8 @@ Reglas de conversacion:
 - Si hay confusion o ruido, pide una aclaracion breve.
 - Cuando el cliente pida algo claro, ejecuta la herramienta correcta y responde de forma breve sin cortar la frase.
 - Si el cliente pide un plato de forma natural, intenta mapearlo al nombre exacto de la carta y usa siempre la herramienta antes de confirmarlo verbalmente.
+- Si el cliente quiere corregir, quitar o confirmar, ten en cuenta el pedido actual antes de responder.
+- Si el pedido actual esta vacio, no digas que has quitado o confirmado nada.
 `.trim();
 
 const normaliseList = (values: string[]) => values.map((value) => value.trim()).filter(Boolean);
@@ -43,6 +48,7 @@ export function buildSystemInstruction({
   tableNumber,
   clientName,
   dinersCount,
+  cartItems,
   menu,
 }: SystemInstructionOptions): string {
   const availableItems = menu.filter((item) => item.available);
@@ -71,7 +77,7 @@ export function buildSystemInstruction({
         }
 
         const suffix = tags.length > 0 ? ` [${tags.join(' | ')}]` : '';
-        return `- ${item.name} (${item.price.toFixed(2)} EUR): ${item.description}${suffix}`;
+        return `- ${item.name} | ID: ${item.id} | ${item.price.toFixed(2)} EUR: ${item.description}${suffix}`;
       });
 
       return `${category}:\n${lines.join('\n')}`;
@@ -80,6 +86,12 @@ export function buildSystemInstruction({
 
   const safeClientName = clientName.trim();
   const safeDinersCount = Math.max(1, dinersCount);
+  const currentOrderSummary =
+    cartItems.length > 0
+      ? cartItems
+          .map((item) => `- ${item.quantity} x ${item.menuItem.name}${item.notes ? ` (${item.notes})` : ''}`)
+          .join('\n')
+      : '- El pedido actual esta vacio.';
 
   return [
     BASE_SYSTEM_PROMPT,
@@ -88,9 +100,11 @@ export function buildSystemInstruction({
     `Mesa activa: ${tableNumber}.`,
     `Nombre del cliente actual: ${safeClientName || 'No indicado'}.`,
     `Numero de comensales actual: ${safeDinersCount}.`,
+    'Pedido actual:',
+    currentOrderSummary,
     'Menu disponible actual:',
     menuSections || '- No hay platos disponibles en este momento.',
-    'Importante: solo puedes trabajar con los platos listados arriba y debes usar sus nombres exactos.',
+    'Importante: solo puedes trabajar con los platos listados arriba y debes usar sus nombres exactos o sus IDs exactos.',
     safeClientName
       ? `Primera respuesta sugerida cuando el cliente hable: "Hola ${safeClientName}, soy ${assistantName}. Ya tengo registrada tu mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`
       : `Primera respuesta sugerida cuando el cliente hable: "Hola, soy ${assistantName}. Ya tengo registrada la mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`,

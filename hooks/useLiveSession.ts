@@ -147,6 +147,87 @@ function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
   return bestMatch && bestMatch.score >= 34 ? bestMatch.item : null;
 }
 
+function findMenuItem(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
+  const menuItemId = typeof args.menuItemId === 'string' ? args.menuItemId.trim() : '';
+  if (menuItemId) {
+    const exactById = items.find((item) => item.available && item.id === menuItemId);
+    if (exactById) {
+      return exactById;
+    }
+  }
+
+  const rawName = typeof args[nameKey] === 'string' ? args[nameKey] : '';
+  return resolveMenuItemFromVoiceQuery(items, rawName);
+}
+
+function summarizeCartItems(items: CartItem[]) {
+  if (items.length === 0) {
+    return 'Pedido vacio.';
+  }
+
+  return items.map((item) => `${item.quantity}x ${item.menuItem.name}`).join(', ');
+}
+
+function parseVoiceQuantity(rawText: string) {
+  const normalized = normalizeVoiceText(rawText);
+  const digitMatch = normalized.match(/\b([1-9]|10|11|12)\b/);
+  if (digitMatch) {
+    return Number(digitMatch[1]);
+  }
+
+  const quantityMap: Record<string, number> = {
+    un: 1,
+    uno: 1,
+    una: 1,
+    dos: 2,
+    tres: 3,
+    cuatro: 4,
+    cinco: 5,
+    seis: 6,
+  };
+
+  const token = normalized.split(' ').find((part) => quantityMap[part]);
+  return token ? quantityMap[token] : 1;
+}
+
+type LocalVoiceIntent =
+  | { type: 'add'; item: MenuItem; quantity: number }
+  | { type: 'remove'; item: MenuItem }
+  | { type: 'confirm' }
+  | { type: 'unknown' };
+
+function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartItems: CartItem[]): LocalVoiceIntent {
+  const normalized = normalizeVoiceText(transcript);
+
+  const wantsConfirm =
+    /\b(confirma|confirmar|confirma ya|esta bien|está bien|correcto|eso es todo|ya estaria|ya estaria bien|puedes mandarlo|mandalo|mandalo ya|envialo|enviarlo)\b/.test(
+      normalized,
+    );
+
+  if (wantsConfirm) {
+    return { type: 'confirm' };
+  }
+
+  const wantsRemove = /\b(quita|quitar|quita una|elimina|borra|cancela|sin)\b/.test(normalized);
+  if (wantsRemove) {
+    const item = resolveMenuItemFromVoiceQuery(
+      cartItems.map((cartItem) => cartItem.menuItem),
+      transcript,
+    );
+    return item ? { type: 'remove', item } : { type: 'unknown' };
+  }
+
+  const wantsAdd = /\b(pon|ponme|ponnos|trae|traeme|traenos|anade|añade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized);
+  if (wantsAdd || menuItems.some((item) => normalized.includes(normalizeVoiceText(item.name)))) {
+    const item = resolveMenuItemFromVoiceQuery(menuItems, transcript);
+    if (item) {
+      return { type: 'add', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
+    }
+  }
+
+  return { type: 'unknown' };
+}
+
 export function useLiveSession({
   branding,
   tableNumber,
@@ -191,6 +272,10 @@ export function useLiveSession({
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const lastAssistantTextRef = useRef('');
   const lastOutputTranscriptRef = useRef('');
+  const latestInputTranscriptRef = useRef('');
+  const currentTurnHadToolCallRef = useRef(false);
+  const currentTurnLocallyHandledRef = useRef(false);
+  const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -251,6 +336,16 @@ export function useLiveSession({
     playedAudioChunksRef.current.clear();
     lastAssistantTextRef.current = '';
     lastOutputTranscriptRef.current = '';
+    latestInputTranscriptRef.current = '';
+    currentTurnHadToolCallRef.current = false;
+    currentTurnLocallyHandledRef.current = false;
+  }, []);
+
+  const cancelLocalSpeech = useCallback(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    localSpeechUtteranceRef.current = null;
   }, []);
 
   const teardownAudioCapture = useCallback(() => {
@@ -316,6 +411,7 @@ export function useLiveSession({
       teardownAudioCapture();
 
       stopPlayback();
+      cancelLocalSpeech();
       transcriptRef.current = '';
       hasRunDiagnosticsRef.current = false;
       setLastAssistantMessage('');
@@ -324,7 +420,7 @@ export function useLiveSession({
       setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
       setStatusSafe(nextStatus);
     },
-    [clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -360,9 +456,10 @@ export function useLiveSession({
         tableNumber,
         clientName,
         dinersCount,
+        cartItems,
         menu,
       }),
-    [branding.assistantName, branding.restaurantName, clientName, dinersCount, menu, tableNumber],
+    [branding.assistantName, branding.restaurantName, cartItems, clientName, dinersCount, menu, tableNumber],
   );
 
   const getMenuTool: FunctionDeclaration = useMemo(
@@ -392,15 +489,16 @@ export function useLiveSession({
   const addToOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'addToOrder',
-      description: 'Anade un plato nuevo al pedido actual.',
+      description: 'Anade un plato nuevo al pedido actual usando preferiblemente el menuItemId exacto de la carta.',
       parameters: {
         type: Type.OBJECT,
         properties: {
+          menuItemId: { type: Type.STRING, description: 'ID exacto del plato en la carta. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato' },
           quantity: { type: Type.NUMBER, description: 'Cantidad solicitada' },
           notes: { type: Type.STRING, description: 'Observaciones' },
         },
-        required: ['itemName', 'quantity'],
+        required: ['quantity'],
       },
     }),
     [],
@@ -409,14 +507,23 @@ export function useLiveSession({
   const removeFromOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'removeFromOrder',
-      description: 'Quita una unidad del plato indicado del pedido actual.',
+      description: 'Quita una unidad del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido.',
       parameters: {
         type: Type.OBJECT,
         properties: {
+          menuItemId: { type: Type.STRING, description: 'ID exacto del plato en el pedido actual. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato a corregir' },
         },
-        required: ['itemName'],
+        required: [],
       },
+    }),
+    [],
+  );
+
+  const getCurrentOrderTool: FunctionDeclaration = useMemo(
+    () => ({
+      name: 'getCurrentOrder',
+      description: 'Devuelve el pedido actual resumido para comprobar que platos hay antes de quitar, corregir o confirmar.',
     }),
     [],
   );
@@ -440,10 +547,10 @@ export function useLiveSession({
   const geminiTools = useMemo(
     () => [
       {
-        functionDeclarations: [getMenuTool, setDinersTool, addToOrderTool, removeFromOrderTool, confirmOrderTool, endSessionTool],
+        functionDeclarations: [getMenuTool, getCurrentOrderTool, setDinersTool, addToOrderTool, removeFromOrderTool, confirmOrderTool, endSessionTool],
       },
     ],
-    [addToOrderTool, confirmOrderTool, endSessionTool, getMenuTool, removeFromOrderTool, setDinersTool],
+    [addToOrderTool, confirmOrderTool, endSessionTool, getCurrentOrderTool, getMenuTool, removeFromOrderTool, setDinersTool],
   );
 
   const runTool = useCallback(
@@ -452,6 +559,12 @@ export function useLiveSession({
 
       if (name === 'getMenu') {
         result = { success: true, count: menuRef.current.length, message: 'La carta ya esta en contexto.' };
+      } else if (name === 'getCurrentOrder') {
+        result = {
+          success: true,
+          count: cartItemsRef.current.length,
+          message: summarizeCartItems(cartItemsRef.current),
+        };
       } else if (name === 'setDiners') {
         const count = Number(args.count ?? 1);
         const nextName = typeof args.name === 'string' ? args.name : undefined;
@@ -459,28 +572,73 @@ export function useLiveSession({
         addLog('system', `Mesa actualizada a ${count} comensales.`);
         result = { success: true, message: `${count} comensales actualizados.` };
       } else if (name === 'addToOrder') {
-        const itemName = typeof args.itemName === 'string' ? args.itemName : '';
-        const quantity = Number(args.quantity ?? 1);
+        const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
+        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? args.notes : undefined;
-        const item = resolveMenuItemFromVoiceQuery(menuRef.current, itemName);
+        const item = findMenuItem(menuRef.current, args);
 
         if (!item) {
-          result = { success: false, error: `El plato ${itemName} no esta disponible.` };
+          result = { success: false, error: `No he podido identificar el plato "${itemName}" en la carta actual.` };
           addLog('error', result.error);
         } else {
           onAddToCart(item, quantity, notes);
           addLog('system', `Anadido ${quantity}x ${item.name}.`);
-          result = { success: true, message: `${quantity}x ${item.name} anadidos.` };
+          result = {
+            success: true,
+            message: `${quantity}x ${item.name} anadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems([
+              ...cartItemsRef.current,
+              {
+                id: 'preview',
+                menuItem: item,
+                quantity,
+                notes,
+                timestamp: new Date().toISOString(),
+              },
+            ])}`,
+          };
         }
       } else if (name === 'removeFromOrder') {
-        const itemName = typeof args.itemName === 'string' ? args.itemName : '';
-        onRemoveFromOrder(itemName);
-        addLog('system', `Corregido el pedido de ${itemName}.`);
-        result = { success: true, message: `Se ha actualizado ${itemName}.` };
+        const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
+        const item = findMenuItem(
+          cartItemsRef.current.map((cartItem) => cartItem.menuItem),
+          args,
+        );
+
+        if (!item) {
+          result = { success: false, error: `No he encontrado "${itemName}" dentro del pedido actual.` };
+          addLog('error', result.error);
+        } else {
+          onRemoveFromOrder(item.name);
+          addLog('system', `Corregido el pedido de ${item.name}.`);
+          const remainingCart = [...cartItemsRef.current];
+          const targetIndex = remainingCart.findIndex((cartItem) => cartItem.menuItem.id === item.id);
+          if (targetIndex >= 0) {
+            const target = remainingCart[targetIndex];
+            if (target.quantity <= 1) {
+              remainingCart.splice(targetIndex, 1);
+            } else {
+              remainingCart[targetIndex] = { ...target, quantity: target.quantity - 1 };
+            }
+          }
+
+          result = {
+            success: true,
+            message: `Se ha quitado una unidad de ${item.name} del pedido actual. Pedido actual: ${summarizeCartItems(remainingCart)}`,
+          };
+        }
       } else if (name === 'confirmOrder') {
+        if (cartItemsRef.current.length === 0) {
+          result = { success: false, error: 'No puedes confirmar un pedido vacio.' };
+          addLog('error', result.error);
+          return result;
+        }
+
         const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
         result = success
-          ? { success: true, message: 'Pedido confirmado y enviado.' }
+          ? {
+              success: true,
+              message: `Pedido confirmado y enviado con ${cartItemsRef.current.length} lineas.`,
+            }
           : { success: false, error: 'No se pudo confirmar el pedido.' };
         addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmacion por voz ha fallado.');
       } else if (name === 'endSession') {
@@ -576,6 +734,94 @@ export function useLiveSession({
     }
   }, [scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
+  const speakLocalAssistantMessage = useCallback(
+    (message: string) => {
+      cancelLocalSpeech();
+      setLastAssistantMessage(message);
+      addLog('assistant', message);
+      setTurnStateSafe('speaking');
+
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
+        const utterance = new SpeechSynthesisUtterance(message);
+        const spanishVoice = window.speechSynthesis
+          .getVoices()
+          .find((voice) => voice.lang.toLowerCase().startsWith('es'));
+        if (spanishVoice) {
+          utterance.voice = spanishVoice;
+        }
+        utterance.lang = spanishVoice?.lang ?? 'es-ES';
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.volume = 1;
+        utterance.onend = () => {
+          localSpeechUtteranceRef.current = null;
+          finalizeTurnIfReady();
+        };
+        utterance.onerror = () => {
+          localSpeechUtteranceRef.current = null;
+          finalizeTurnIfReady();
+        };
+        localSpeechUtteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+        return;
+      }
+
+      window.setTimeout(() => {
+        finalizeTurnIfReady();
+      }, 900);
+    },
+    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe],
+  );
+
+  const tryHandleLocalIntent = useCallback(async () => {
+    const transcript = latestInputTranscriptRef.current.trim();
+    if (!transcript || currentTurnHadToolCallRef.current || currentTurnLocallyHandledRef.current) {
+      return false;
+    }
+
+    const intent = parseLocalVoiceIntent(transcript, menuRef.current, cartItemsRef.current);
+    if (intent.type === 'unknown') {
+      return false;
+    }
+
+    currentTurnLocallyHandledRef.current = true;
+    stopPlayback();
+
+    if (intent.type === 'add') {
+      onAddToCart(intent.item, intent.quantity);
+      const confirmation = `Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`;
+      addLog('system', `Fallback local: anadido ${intent.quantity}x ${intent.item.name}.`);
+      speakLocalAssistantMessage(confirmation);
+      return true;
+    }
+
+    if (intent.type === 'remove') {
+      onRemoveFromOrder(intent.item.name);
+      const confirmation = `De acuerdo, quito una unidad de ${intent.item.name}.`;
+      addLog('system', `Fallback local: quitado ${intent.item.name}.`);
+      speakLocalAssistantMessage(confirmation);
+      return true;
+    }
+
+    if (intent.type === 'confirm') {
+      if (cartItemsRef.current.length === 0) {
+        speakLocalAssistantMessage('No veo ningun plato en el pedido todavia.');
+        return true;
+      }
+
+      const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
+      if (success) {
+        addLog('system', 'Fallback local: pedido confirmado.');
+        speakLocalAssistantMessage('Perfecto, pedido confirmado y enviado a cocina.');
+      } else {
+        speakLocalAssistantMessage('No he podido confirmar el pedido. Intentalo de nuevo.');
+      }
+      return true;
+    }
+
+    return false;
+  }, [addLog, onAddToCart, onConfirmOrder, onRemoveFromOrder, speakLocalAssistantMessage, stopPlayback]);
+
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
     if (turnStateRef.current === 'speaking' || turnStateRef.current === 'processing') {
@@ -591,6 +837,7 @@ export function useLiveSession({
     clearRecordingTimeout();
     pendingPressRef.current = true;
     cancelCurrentResponse();
+    cancelLocalSpeech();
     resetAssistantTurnTracking();
     geminiSessionRef.current.sendRealtimeInput({ activityStart: {} });
     shouldStreamAudioRef.current = true;
@@ -608,7 +855,7 @@ export function useLiveSession({
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe]);
+  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
@@ -689,6 +936,7 @@ export function useLiveSession({
 
             const inputTranscript = message.serverContent?.inputTranscription?.text?.trim();
             if (inputTranscript) {
+              latestInputTranscriptRef.current = inputTranscript;
               addLog('system', `Tu voz: ${inputTranscript}`);
             }
 
@@ -700,6 +948,7 @@ export function useLiveSession({
             }
 
             if (message.toolCall) {
+              currentTurnHadToolCallRef.current = true;
               const responses = [];
 
               for (const functionCall of message.toolCall.functionCalls) {
@@ -752,13 +1001,17 @@ export function useLiveSession({
 
             if (message.serverContent?.interrupted) {
               stopPlayback();
+              cancelLocalSpeech();
               resetAssistantTurnTracking();
               addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
             }
 
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
-              finalizeTurnIfReady();
+              const handledLocally = await tryHandleLocalIntent();
+              if (!handledLocally) {
+                finalizeTurnIfReady();
+              }
             }
           },
           onclose: (event) => {

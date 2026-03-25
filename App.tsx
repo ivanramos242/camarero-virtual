@@ -906,7 +906,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
                   turnState={voiceSession.turnState}
                   onBeginPressToTalk={voiceSession.beginPressToTalk}
                   onEndPressToTalk={voiceSession.endPressToTalk}
-                  onCancelCurrentResponse={voiceSession.cancelCurrentResponse}
                   onDisconnect={voiceSession.disconnect}
                   showDebug={debugEnabled}
                   volumeLevel={voiceSession.volumeLevel}
@@ -1272,7 +1271,6 @@ interface AssistantPanelProps {
   turnState: 'idle' | 'recording' | 'processing' | 'speaking' | 'error';
   onBeginPressToTalk: () => void;
   onEndPressToTalk: () => void;
-  onCancelCurrentResponse: () => void;
   onDisconnect: () => void;
   showDebug: boolean;
   volumeLevel: number;
@@ -1289,7 +1287,6 @@ function AssistantPanel({
   turnState,
   onBeginPressToTalk,
   onEndPressToTalk,
-  onCancelCurrentResponse,
   onDisconnect,
   showDebug,
   volumeLevel,
@@ -1299,15 +1296,16 @@ function AssistantPanel({
   const isProcessing = turnState === 'processing' || isConnecting;
   const isSpeaking = turnState === 'speaking';
   const hasIssue = disabled || status === 'error' || turnState === 'error' || Boolean(latestError);
-  const isInteractive = !disabled && !isConnecting;
+  const isTurnLocked = isProcessing || isSpeaking;
+  const isInteractive = !disabled && !isTurnLocked;
   const micEnergy = Math.max(0.12, Math.min(volumeLevel, 1));
   const visualEnergy = isListening ? micEnergy : isSpeaking ? 0.42 : isProcessing ? 0.2 : 0.08;
   const pressLabel = isListening
     ? 'Grabando. Suelta para enviar.'
     : isProcessing
-      ? 'Procesando tu mensaje.'
+      ? 'Ramiro esta pensando. Espera su respuesta.'
       : isSpeaking
-        ? 'Ramiro esta respondiendo.'
+        ? 'Ramiro esta hablando. Espera a que termine.'
         : hasIssue
           ? disabledMessage || latestError || 'La sesion de voz no esta disponible.'
           : 'Mantener pulsado para hablar con Ramiro.';
@@ -1354,9 +1352,6 @@ function AssistantPanel({
           }}
           onPointerDown={(event) => {
             event.preventDefault();
-            if (turnState === 'speaking' || turnState === 'processing') {
-              onCancelCurrentResponse();
-            }
             void onBeginPressToTalk();
           }}
           onPointerUp={(event) => {
