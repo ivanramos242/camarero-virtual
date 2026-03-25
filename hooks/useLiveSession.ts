@@ -41,6 +41,112 @@ const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const PLAYBACK_GAIN = 2.15;
 const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 
+const VOICE_STOP_WORDS = new Set([
+  'el',
+  'la',
+  'los',
+  'las',
+  'un',
+  'una',
+  'unos',
+  'unas',
+  'de',
+  'del',
+  'al',
+  'con',
+  'sin',
+  'para',
+  'por',
+  'favor',
+  'quiero',
+  'queria',
+  'me',
+  'pon',
+  'ponme',
+  'ponnos',
+  'trae',
+  'traeme',
+  'traenos',
+  'dame',
+  'danos',
+  'anade',
+  'añade',
+  'pedido',
+  'plato',
+  'platos',
+  'racion',
+  'ración',
+]);
+
+function normalizeVoiceText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeVoiceText(value: string) {
+  return normalizeVoiceText(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !VOICE_STOP_WORDS.has(token));
+}
+
+function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
+  const query = normalizeVoiceText(rawQuery);
+  const queryTokens = tokenizeVoiceText(rawQuery);
+
+  if (!query) {
+    return null;
+  }
+
+  let bestMatch: { item: MenuItem; score: number } | null = null;
+
+  for (const item of items) {
+    if (!item.available) {
+      continue;
+    }
+
+    const name = normalizeVoiceText(item.name);
+    const category = normalizeVoiceText(item.category);
+    const ingredients = item.ingredients.map(normalizeVoiceText);
+    const haystack = [name, category, ...ingredients].join(' ');
+    const haystackTokens = new Set(tokenizeVoiceText(`${item.name} ${item.category} ${item.ingredients.join(' ')}`));
+
+    let score = 0;
+
+    if (name === query) {
+      score += 120;
+    }
+
+    if (name.includes(query) || query.includes(name)) {
+      score += 80;
+    }
+
+    for (const token of queryTokens) {
+      if (haystackTokens.has(token)) {
+        score += name.includes(token) ? 22 : 10;
+      } else if (haystack.includes(token)) {
+        score += 6;
+      }
+    }
+
+    if (queryTokens.length > 0) {
+      const matchedTokens = queryTokens.filter((token) => haystackTokens.has(token)).length;
+      score += (matchedTokens / queryTokens.length) * 35;
+    }
+
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { item, score };
+    }
+  }
+
+  return bestMatch && bestMatch.score >= 34 ? bestMatch.item : null;
+}
+
 export function useLiveSession({
   branding,
   tableNumber,
@@ -356,9 +462,7 @@ export function useLiveSession({
         const itemName = typeof args.itemName === 'string' ? args.itemName : '';
         const quantity = Number(args.quantity ?? 1);
         const notes = typeof args.notes === 'string' ? args.notes : undefined;
-        const item =
-          menuRef.current.find((menuItem) => menuItem.available && menuItem.name.toLowerCase().trim() === itemName.toLowerCase().trim()) ??
-          menuRef.current.find((menuItem) => menuItem.available && menuItem.name.toLowerCase().includes(itemName.toLowerCase()));
+        const item = resolveMenuItemFromVoiceQuery(menuRef.current, itemName);
 
         if (!item) {
           result = { success: false, error: `El plato ${itemName} no esta disponible.` };
