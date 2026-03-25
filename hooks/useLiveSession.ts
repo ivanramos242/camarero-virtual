@@ -80,6 +80,9 @@ export function useLiveSession({
   const turnStateRef = useRef<VoiceTurnState>('idle');
   const hasRunDiagnosticsRef = useRef(false);
   const captureTeardownTimeoutRef = useRef<number | null>(null);
+  const playedAudioChunksRef = useRef<Set<string>>(new Set());
+  const lastAssistantTextRef = useRef('');
+  const lastOutputTranscriptRef = useRef('');
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -133,6 +136,13 @@ export function useLiveSession({
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
     modelTurnCompleteRef.current = false;
+    playedAudioChunksRef.current.clear();
+  }, []);
+
+  const resetAssistantTurnTracking = useCallback(() => {
+    playedAudioChunksRef.current.clear();
+    lastAssistantTextRef.current = '';
+    lastOutputTranscriptRef.current = '';
   }, []);
 
   const teardownAudioCapture = useCallback(() => {
@@ -195,11 +205,12 @@ export function useLiveSession({
       transcriptRef.current = '';
       hasRunDiagnosticsRef.current = false;
       setLastAssistantMessage('');
+      resetAssistantTurnTracking();
       setVolumeLevel(0);
       setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
       setStatusSafe(nextStatus);
     },
-    [clearCaptureTeardownTimeout, clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -461,6 +472,7 @@ export function useLiveSession({
     clearRecordingTimeout();
     pendingPressRef.current = true;
     cancelCurrentResponse();
+    resetAssistantTurnTracking();
     geminiSessionRef.current.sendRealtimeInput({ activityStart: {} });
     shouldStreamAudioRef.current = true;
     transcriptRef.current = '';
@@ -477,7 +489,7 @@ export function useLiveSession({
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, clearRecordingTimeout, setTurnStateSafe]);
+  }, [addLog, cancelCurrentResponse, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
@@ -549,8 +561,11 @@ export function useLiveSession({
 
             if (textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
-              setLastAssistantMessage(assistantText);
-              addLog('assistant', assistantText);
+              if (assistantText && assistantText !== lastAssistantTextRef.current) {
+                lastAssistantTextRef.current = assistantText;
+                setLastAssistantMessage(assistantText);
+                addLog('assistant', assistantText);
+              }
             }
 
             const inputTranscript = message.serverContent?.inputTranscription?.text?.trim();
@@ -559,7 +574,8 @@ export function useLiveSession({
             }
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
-            if (outputTranscript) {
+            if (outputTranscript && outputTranscript !== lastOutputTranscriptRef.current) {
+              lastOutputTranscriptRef.current = outputTranscript;
               setLastAssistantMessage(outputTranscript);
               addLog('assistant', outputTranscript);
             }
@@ -579,33 +595,45 @@ export function useLiveSession({
               geminiSessionRef.current?.sendToolResponse({ functionResponses: responses });
             }
 
-            const base64Audio = message.serverContent?.modelTurn?.parts?.find((part) => 'inlineData' in part && part.inlineData?.data)?.inlineData?.data;
-            if (base64Audio && audioContextRef.current) {
+            const audioParts = message.serverContent?.modelTurn?.parts?.filter(
+              (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
+            );
+            if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               const audioContext = audioContextRef.current;
               if (audioContext.state === 'suspended') {
                 await audioContext.resume();
               }
-              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
 
-              const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
-              const source = audioContext.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(playbackGainRef.current ?? audioContext.destination);
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-              setTurnStateSafe('speaking');
-
-              sourcesRef.current.add(source);
-              source.onended = () => {
-                sourcesRef.current.delete(source);
-                if (modelTurnCompleteRef.current) {
-                  finalizeTurnIfReady();
+              for (const part of audioParts) {
+                const base64Audio = part.inlineData.data;
+                if (playedAudioChunksRef.current.has(base64Audio)) {
+                  continue;
                 }
-              };
+
+                playedAudioChunksRef.current.add(base64Audio);
+                nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
+
+                const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
+                const source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(playbackGainRef.current ?? audioContext.destination);
+                source.start(nextStartTimeRef.current);
+                nextStartTimeRef.current += audioBuffer.duration;
+                setTurnStateSafe('speaking');
+
+                sourcesRef.current.add(source);
+                source.onended = () => {
+                  sourcesRef.current.delete(source);
+                  if (modelTurnCompleteRef.current) {
+                    finalizeTurnIfReady();
+                  }
+                };
+              }
             }
 
             if (message.serverContent?.interrupted) {
               stopPlayback();
+              resetAssistantTurnTracking();
               addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
             }
 
