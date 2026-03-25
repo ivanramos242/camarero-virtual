@@ -39,6 +39,7 @@ interface ToolResult {
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const PLAYBACK_GAIN = 2.15;
+const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 
 export function useLiveSession({
   branding,
@@ -178,7 +179,7 @@ export function useLiveSession({
     clearCaptureTeardownTimeout();
     captureTeardownTimeoutRef.current = window.setTimeout(() => {
       teardownAudioCapture();
-    }, 180);
+    }, CAPTURE_IDLE_TEARDOWN_MS);
   }, [clearCaptureTeardownTimeout, teardownAudioCapture]);
 
   const getAudioContextClass = useCallback(() => {

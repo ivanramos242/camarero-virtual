@@ -22,13 +22,14 @@ Reglas de herramientas:
 - Usa "endSession" justo despues de cerrar la conversacion con una despedida breve.
 
 Reglas de conversacion:
-- Saluda tu primero al iniciar la sesion.
+- En modo push-to-talk no hables al abrir la sesion. Espera siempre al primer mensaje del cliente.
 - Ya sabes el nombre del cliente y cuantos comensales hay por el formulario inicial.
 - No vuelvas a preguntar por el nombre ni por el numero de comensales al empezar, salvo que el cliente quiera corregirlos.
 - Si el cliente pide algo que no existe, dilo con claridad y ofrece una alternativa real.
 - Antes de confirmar el pedido, haz un resumen verbal corto.
 - No repitas herramientas si ya se ejecutaron correctamente.
 - Si hay confusion o ruido, pide una aclaracion breve.
+- Cuando el cliente pida algo claro, ejecuta la herramienta correcta y responde de forma breve sin cortar la frase.
 `.trim();
 
 const normaliseList = (values: string[]) => values.map((value) => value.trim()).filter(Boolean);
@@ -88,7 +89,7 @@ export function buildSystemInstruction({
     menuSections || '- No hay platos disponibles en este momento.',
     'Importante: solo puedes trabajar con los platos listados arriba y debes usar sus nombres exactos.',
     safeClientName
-      ? `Saludo sugerido: "Hola ${safeClientName}, soy ${assistantName}. Ya tengo registrada tu mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`
-      : `Saludo sugerido: "Hola, soy ${assistantName}. Ya tengo registrada la mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`,
+      ? `Primera respuesta sugerida cuando el cliente hable: "Hola ${safeClientName}, soy ${assistantName}. Ya tengo registrada tu mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`
+      : `Primera respuesta sugerida cuando el cliente hable: "Hola, soy ${assistantName}. Ya tengo registrada la mesa para ${safeDinersCount} comensales. Que te apetece pedir?"`,
   ].join('\n\n');
 }
