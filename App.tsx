@@ -1320,9 +1320,7 @@ function AssistantPanel({
         ? 'Pensando espera'
         : isSpeaking
           ? 'espera y escucha'
-          : status === 'connected'
-            ? 'Mantén y habla'
-            : 'Espera';
+          : 'Mantén y habla';
   const orbState = hasIssue
     ? 'error'
     : isListening

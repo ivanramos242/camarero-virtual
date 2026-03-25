@@ -243,6 +243,7 @@ button {
 
 .voice-orb {
   --voice-black: 0, 0, 0;
+  --voice-rgb: 0, 0, 0;
   --voice-shadow-alpha: 0.18;
   --voice-ring-alpha: 0.09;
   --voice-glow-alpha: 0.06;
@@ -281,6 +282,7 @@ button {
 }
 
 .voice-orb[data-state='listening'] {
+  --voice-rgb: 124, 45, 18;
   --voice-ring-alpha: 0.24;
   --voice-glow-alpha: 0.12;
   --voice-wave-alpha: 1;
@@ -291,6 +293,7 @@ button {
 }
 
 .voice-orb[data-state='processing'] {
+  --voice-rgb: 88, 68, 149;
   --voice-ring-alpha: 0.18;
   --voice-glow-alpha: 0.09;
   --voice-processing-alpha: 1;
@@ -301,16 +304,18 @@ button {
 }
 
 .voice-orb[data-state='speaking'] {
-  --voice-ring-alpha: 0.22;
-  --voice-glow-alpha: 0.11;
+  --voice-rgb: 34, 126, 255;
+  --voice-ring-alpha: 0.32;
+  --voice-glow-alpha: 0.18;
   --voice-speaking-alpha: 1;
-  --voice-face-bg: linear-gradient(180deg, #123247 0%, #041019 100%);
-  --voice-face-edge: rgba(220, 243, 255, 0.2);
-  --voice-face-highlight: rgba(222, 246, 255, 0.22);
-  --voice-face-depth: rgba(8, 28, 40, 0.42);
+  --voice-face-bg: linear-gradient(180deg, #1d5fa8 0%, #07182d 100%);
+  --voice-face-edge: rgba(226, 244, 255, 0.34);
+  --voice-face-highlight: rgba(236, 248, 255, 0.32);
+  --voice-face-depth: rgba(7, 24, 45, 0.5);
 }
 
 .voice-orb[data-state='error'] {
+  --voice-rgb: 145, 29, 29;
   --voice-shadow-alpha: 0.08;
   --voice-ring-alpha: 0.05;
   --voice-glow-alpha: 0.03;
@@ -361,13 +366,13 @@ button {
 
 .voice-orb__ghost {
   inset: -6px;
-  border: 1.5px solid rgba(var(--voice-black), var(--voice-ring-alpha));
+  border: 1.5px solid rgba(var(--voice-rgb), var(--voice-ring-alpha));
   transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease;
 }
 
 .voice-orb__glow {
   inset: -18px;
-  background: radial-gradient(circle, rgba(var(--voice-black), var(--voice-glow-alpha)) 0%, rgba(var(--voice-black), 0) 70%);
+  background: radial-gradient(circle, rgba(var(--voice-rgb), var(--voice-glow-alpha)) 0%, rgba(var(--voice-rgb), 0) 70%);
   filter: blur(18px);
   opacity: 1;
   transform: scale(0.96);
@@ -433,9 +438,9 @@ button {
 
 .voice-orb__processing-orbit {
   inset: -12px;
-  border: 1.5px solid rgba(var(--voice-black), 0.08);
-  border-right-color: rgba(var(--voice-black), 0.22);
-  border-top-color: rgba(var(--voice-black), 0.22);
+  border: 1.5px solid rgba(var(--voice-rgb), 0.1);
+  border-right-color: rgba(var(--voice-rgb), 0.32);
+  border-top-color: rgba(var(--voice-rgb), 0.32);
   opacity: var(--voice-processing-alpha);
   animation: voice-processing-orbit 1.8s linear infinite;
   transition: opacity 180ms ease;
@@ -443,7 +448,7 @@ button {
 
 .voice-orb__listening-inner {
   inset: -4px;
-  border: 2px solid rgba(var(--voice-black), calc(0.16 + var(--voice-energy, 0.12) * 0.12));
+  border: 2px solid rgba(var(--voice-rgb), calc(0.16 + var(--voice-energy, 0.12) * 0.12));
   opacity: var(--voice-wave-alpha);
   transform: scale(var(--voice-mic-scale, 1.04));
   transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
@@ -451,10 +456,10 @@ button {
 
 .voice-orb__listening-wave {
   inset: -12px;
-  border: 2px solid rgba(var(--voice-black), calc(0.12 + var(--voice-energy, 0.12) * 0.12));
+  border: 2px solid rgba(var(--voice-rgb), calc(0.12 + var(--voice-energy, 0.12) * 0.12));
   box-shadow:
     0 0 24px rgba(255, 255, 255, 0.82),
-    0 0 46px rgba(var(--voice-black), 0.14);
+    0 0 46px rgba(var(--voice-rgb), 0.18);
   mix-blend-mode: normal;
   opacity: calc(var(--voice-wave-alpha) * 0.94);
   animation: voice-listening-wave 2.2s linear infinite;
@@ -470,7 +475,7 @@ button {
 
 .voice-orb__listening-blur {
   inset: -26px;
-  background: radial-gradient(circle, rgba(var(--voice-black), calc(0.05 + var(--voice-energy, 0.12) * 0.08)) 0%, rgba(var(--voice-black), 0) 68%);
+  background: radial-gradient(circle, rgba(var(--voice-rgb), calc(0.05 + var(--voice-energy, 0.12) * 0.08)) 0%, rgba(var(--voice-rgb), 0) 68%);
   filter: blur(24px);
   opacity: var(--voice-wave-alpha);
   transform: scale(calc(1.02 + var(--voice-energy, 0.12) * 0.18));
@@ -479,15 +484,15 @@ button {
 
 .voice-orb__speaking-ring {
   inset: -5px;
-  border: 2px solid rgba(var(--voice-black), 0.2);
+  border: 2px solid rgba(var(--voice-rgb), 0.34);
   opacity: var(--voice-speaking-alpha);
   transition: opacity 180ms ease;
 }
 
 .voice-orb__speaking-pulse {
   inset: -12px;
-  border: 2px solid rgba(var(--voice-black), 0.16);
-  box-shadow: 0 0 32px rgba(var(--voice-black), 0.08);
+  border: 2px solid rgba(var(--voice-rgb), 0.26);
+  box-shadow: 0 0 32px rgba(var(--voice-rgb), 0.14);
   opacity: 0;
 }
 
