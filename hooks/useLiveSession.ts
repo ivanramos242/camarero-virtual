@@ -424,8 +424,9 @@ export function useLiveSession({
     if (turnStateRef.current !== 'recording') {
       setTurnStateSafe('idle');
       setVolumeLevel(0);
+      scheduleAudioCaptureTeardown();
     }
-  }, [setTurnStateSafe]);
+  }, [scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -563,6 +564,9 @@ export function useLiveSession({
             const base64Audio = message.serverContent?.modelTurn?.parts?.find((part) => 'inlineData' in part && part.inlineData?.data)?.inlineData?.data;
             if (base64Audio && audioContextRef.current) {
               const audioContext = audioContextRef.current;
+              if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+              }
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
 
               const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
@@ -699,9 +703,8 @@ export function useLiveSession({
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
     setTurnStateSafe('processing');
     setVolumeLevel(0);
-    scheduleAudioCaptureTeardown();
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, scheduleAudioCaptureTeardown, setTurnStateSafe]);
+  }, [addLog, clearRecordingTimeout, setTurnStateSafe]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 
