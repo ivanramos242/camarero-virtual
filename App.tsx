@@ -27,7 +27,6 @@ import {
 import MenuExplorer from './components/MenuExplorer';
 import OrderStatus from './components/OrderStatus';
 import OrderSummary from './components/OrderSummary';
-import Visualizer from './components/Visualizer';
 import { useAdminSession } from './hooks/useAdminSession';
 import { useMenuFeed } from './hooks/useMenuFeed';
 import { useKitchenSession } from './hooks/useKitchenSession';
@@ -978,7 +977,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </aside>
       </div>
 
-      <div className="h-24 lg:hidden" />
+      <div className="h-44 lg:hidden" />
 
       <button
         type="button"
@@ -1310,15 +1309,6 @@ function AssistantPanel({
               : status === 'connected'
                 ? 'Lista'
                 : 'En espera';
-  const statusTone =
-    turnState === 'recording'
-      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : status === 'connecting' || turnState === 'processing'
-        ? 'bg-amber-50 text-amber-800 ring-amber-200'
-        : status === 'error' || turnState === 'error'
-          ? 'bg-red-50 text-red-700 ring-red-200'
-          : 'bg-stone-100 text-stone-700 ring-stone-200';
-
   const pressLabel =
     turnState === 'recording'
       ? 'Grabando... suelta para enviar'
@@ -1330,71 +1320,60 @@ function AssistantPanel({
             ? 'Abriendo sesion de voz...'
             : 'Manten pulsado para hablar';
 
-  const pressHelper =
-    turnState === 'recording'
-      ? 'Tu audio se enviara al soltar.'
-      : turnState === 'processing'
-        ? 'Ramiro esta procesando tu mensaje.'
-        : turnState === 'speaking'
-          ? 'Si se te olvido algo, manten pulsado y cortaras la respuesta actual.'
-          : 'Habla solo mientras mantienes pulsado el boton.';
+  const isBusy = status === 'connecting' || turnState === 'processing';
+  const isLive = turnState === 'recording' || turnState === 'speaking';
+  const hasIssue = disabled || status === 'error' || turnState === 'error' || Boolean(latestError);
+  const buttonTone = hasIssue
+    ? 'border-red-200 bg-red-50 text-red-700'
+    : isLive
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : isBusy
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-stone-200 bg-white text-stone-900';
+  const coreTone = hasIssue
+    ? 'bg-red-600 text-white'
+    : turnState === 'recording'
+      ? 'bg-red-600 text-white'
+      : isLive
+        ? 'bg-amber-600 text-white'
+        : isBusy
+          ? 'bg-stone-900 text-white'
+          : 'bg-stone-900 text-white';
+  const pulseScale = 1 + Math.min(volumeLevel, 1) * 0.16;
+  const pulseOpacity = turnState === 'recording' ? 0.4 + Math.min(volumeLevel, 1) * 0.28 : 0;
+  const floatingMessage = disabled
+    ? disabledMessage
+    : latestError
+      ? latestError
+      : status === 'connecting'
+        ? 'Preparando micro, carta y acciones disponibles.'
+        : turnState === 'processing'
+          ? 'Ramiro esta procesando tu mensaje.'
+          : turnState === 'speaking'
+            ? 'Ramiro esta respondiendo. Si hace falta, manten pulsado para interrumpir.'
+            : null;
 
   return (
-    <section className="panel overflow-hidden">
-      <div className="border-b border-stone-200 bg-[radial-gradient(circle_at_top,rgba(161,98,7,0.14),transparent_42%),linear-gradient(180deg,#fffdf8_0%,#ffffff_100%)] px-4 py-5 sm:px-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-stone-900 text-white shadow-sm">
-              {turnState === 'recording' || turnState === 'speaking' ? (
-                <Mic size={18} />
-              ) : status === 'connecting' || turnState === 'processing' ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <MicOff size={18} />
-              )}
+    <>
+      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+96px)] z-30 flex justify-center px-4 lg:bottom-6">
+        <div className="pointer-events-auto flex flex-col items-center gap-3">
+          {floatingMessage ? (
+            <div
+              className={`max-w-[min(320px,calc(100vw-32px))] rounded-2xl border px-4 py-3 text-center text-sm shadow-sm ${
+                latestError || status === 'error' || turnState === 'error'
+                  ? 'border-red-200 bg-white text-red-700'
+                  : 'border-stone-200 bg-white text-stone-700'
+              }`}
+            >
+              {floatingMessage}
             </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-stone-900">{assistantName}</h2>
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${statusTone}`}>{statusLabel}</span>
-              </div>
-              <p className="mt-1 text-sm text-stone-500">Pide hablando, corrige al momento y confirma sin salir de esta pantalla.</p>
-            </div>
-          </div>
-        </div>
-      </div>
+          ) : null}
 
-      <div className="space-y-4 px-4 pb-5 pt-0 sm:px-6 sm:pb-6 sm:pt-0">
-        <div className="space-y-4">
-          {status === 'connecting' ? (
-            <div className="space-y-4">
-              <div className="flex h-28 items-center justify-center rounded-[20px] border border-amber-200 bg-amber-50/70">
-                <div className="inline-flex items-center gap-3 text-sm font-medium text-amber-900">
-                  <Loader2 size={18} className="animate-spin" />
-                  Abriendo sesion de voz...
-                </div>
-              </div>
-              <p className="text-sm text-stone-500">Preparando micro, contexto de carta y acciones disponibles.</p>
-            </div>
-          ) : status === 'connected' ? (
-            <div className="space-y-4">
-              <div className="rounded-[20px] border border-emerald-100 bg-white p-4 shadow-sm">
-                <Visualizer isActive={turnState === 'recording'} volume={volumeLevel} />
-              </div>
-              <div className="space-y-2 text-sm text-stone-600">
-                <p>{pressHelper}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 text-sm text-stone-600">
-              {disabled ? <p className="rounded-2xl bg-amber-50 px-4 py-3 text-amber-900">{disabledMessage}</p> : null}
-              {latestError ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-red-700">{latestError}</p> : null}
-            </div>
-          )}
-
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="flex items-center gap-3">
             <button
               type="button"
+              aria-label={`${assistantName}: ${pressLabel}`}
+              title={pressLabel}
               disabled={disabled || status === 'connecting'}
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -1414,24 +1393,32 @@ function AssistantPanel({
                 }
               }}
               onContextMenu={(event) => event.preventDefault()}
-              className="group relative inline-flex min-h-[74px] touch-none items-center justify-between gap-3 overflow-hidden rounded-[22px] bg-stone-900 px-5 py-4 text-left text-white transition hover:bg-black disabled:bg-stone-300"
+              className={`group relative inline-flex h-24 w-24 touch-none items-center justify-center rounded-full border shadow-lg shadow-stone-950/10 transition duration-150 hover:shadow-xl disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 ${buttonTone}`}
             >
-              <span className="pointer-events-none absolute inset-y-0 right-0 w-24 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.18),transparent_62%)] opacity-80" />
-              <span className="relative flex min-w-0 items-center gap-4">
-                <span
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ring-white/15 ${
-                    turnState === 'recording' ? 'bg-red-500/90' : 'bg-white/10'
-                  }`}
-                >
-                  {status === 'connecting' || turnState === 'processing' ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{pressLabel}</span>
-                  <span className="mt-0.5 block text-xs text-stone-300">{pressHelper}</span>
-                </span>
-              </span>
-              <span className="relative text-xs font-semibold uppercase tracking-[0.18em] text-stone-300">
-                {turnState === 'recording' ? 'Enviando al soltar' : 'Push to talk'}
+              <span
+                className="pointer-events-none absolute inset-0 rounded-full border border-current/20 transition duration-150"
+                style={{
+                  opacity: pulseOpacity,
+                  transform: `scale(${pulseScale})`,
+                }}
+              />
+              <span
+                className={`pointer-events-none absolute inset-[7px] rounded-full transition duration-150 ${
+                  turnState === 'recording'
+                    ? 'bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.18),transparent_66%)]'
+                    : isLive
+                      ? 'bg-[radial-gradient(circle_at_center,rgba(217,119,6,0.16),transparent_70%)]'
+                      : 'bg-[radial-gradient(circle_at_center,rgba(28,25,23,0.06),transparent_72%)]'
+                }`}
+              />
+              <span className={`relative flex h-16 w-16 items-center justify-center rounded-full transition ${coreTone}`}>
+                {isBusy ? (
+                  <Loader2 size={24} className="animate-spin" />
+                ) : isLive ? (
+                  <Mic size={24} />
+                ) : (
+                  <MicOff size={24} />
+                )}
               </span>
             </button>
 
@@ -1439,21 +1426,27 @@ function AssistantPanel({
               <button
                 type="button"
                 onClick={onDisconnect}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 px-4 py-3 text-sm text-stone-800 transition hover:bg-stone-50"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 shadow-sm transition hover:bg-stone-50"
+                aria-label="Cerrar sesion de voz"
+                title="Cerrar sesion"
               >
-                Cerrar sesion
+                <X size={16} />
               </button>
             ) : null}
           </div>
-        </div>
 
-        {showDebug && logs.length > 0 ? (
-          <div className="rounded-lg border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-            Ultimo evento: {logs[logs.length - 1]?.text}
+          <div className="rounded-full border border-stone-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm">
+            {statusLabel}
           </div>
-        ) : null}
+
+          {showDebug && logs.length > 0 ? (
+            <div className="max-w-[min(340px,calc(100vw-32px))] rounded-2xl border border-stone-200 bg-white px-4 py-3 text-center text-xs text-stone-600 shadow-sm">
+              Ultimo evento: {logs[logs.length - 1]?.text}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </section>
+    </>
   );
 }
 
