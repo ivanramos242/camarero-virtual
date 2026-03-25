@@ -250,6 +250,10 @@ button {
   --voice-speaking-alpha: 0;
   --voice-processing-alpha: 0;
   --voice-icon-color: #ffffff;
+  --voice-face-bg: linear-gradient(180deg, #242424 0%, #030303 100%);
+  --voice-face-edge: rgba(255, 255, 255, 0.16);
+  --voice-face-highlight: rgba(255, 255, 255, 0.16);
+  --voice-face-depth: rgba(0, 0, 0, 0.35);
   position: relative;
   isolation: isolate;
   user-select: none;
@@ -280,24 +284,40 @@ button {
   --voice-ring-alpha: 0.24;
   --voice-glow-alpha: 0.12;
   --voice-wave-alpha: 1;
+  --voice-face-bg: linear-gradient(180deg, #7c2d12 0%, #2a0a05 100%);
+  --voice-face-edge: rgba(255, 244, 214, 0.22);
+  --voice-face-highlight: rgba(255, 232, 201, 0.24);
+  --voice-face-depth: rgba(85, 23, 7, 0.44);
 }
 
 .voice-orb[data-state='processing'] {
   --voice-ring-alpha: 0.18;
   --voice-glow-alpha: 0.09;
   --voice-processing-alpha: 1;
+  --voice-face-bg: linear-gradient(180deg, #2f2b47 0%, #0c0a14 100%);
+  --voice-face-edge: rgba(226, 220, 255, 0.18);
+  --voice-face-highlight: rgba(233, 229, 255, 0.2);
+  --voice-face-depth: rgba(19, 15, 33, 0.42);
 }
 
 .voice-orb[data-state='speaking'] {
   --voice-ring-alpha: 0.22;
   --voice-glow-alpha: 0.11;
   --voice-speaking-alpha: 1;
+  --voice-face-bg: linear-gradient(180deg, #123247 0%, #041019 100%);
+  --voice-face-edge: rgba(220, 243, 255, 0.2);
+  --voice-face-highlight: rgba(222, 246, 255, 0.22);
+  --voice-face-depth: rgba(8, 28, 40, 0.42);
 }
 
 .voice-orb[data-state='error'] {
   --voice-shadow-alpha: 0.08;
   --voice-ring-alpha: 0.05;
   --voice-glow-alpha: 0.03;
+  --voice-face-bg: linear-gradient(180deg, #5d1b1b 0%, #1b0505 100%);
+  --voice-face-edge: rgba(255, 219, 219, 0.16);
+  --voice-face-highlight: rgba(255, 222, 222, 0.16);
+  --voice-face-depth: rgba(56, 8, 8, 0.36);
   opacity: 0.42;
 }
 
@@ -359,18 +379,18 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    linear-gradient(180deg, rgba(36, 36, 36, 1) 0%, rgba(3, 3, 3, 1) 100%);
+  background: var(--voice-face-bg);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -8px 20px rgba(0, 0, 0, 0.35);
-  transition: transform 220ms ease, box-shadow 220ms ease;
+    inset 0 1px 0 var(--voice-face-highlight),
+    inset 0 -8px 20px var(--voice-face-depth);
+  transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease;
 }
 
 .voice-orb__button-edge {
   inset: 1px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid var(--voice-face-edge);
   opacity: 0.9;
+  transition: border-color 220ms ease;
 }
 
 .voice-orb__button-core {
@@ -392,11 +412,14 @@ button {
 .voice-orb__button-label {
   display: block;
   font-size: 9px;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+  text-transform: none;
   font-weight: 600;
   opacity: 0.8;
+  max-width: 68px;
+  text-align: center;
+  text-wrap: balance;
 }
 
 .voice-orb[data-state='listening'] .voice-orb__button-label,

@@ -1313,15 +1313,15 @@ function AssistantPanel({
           : 'Mantener pulsado para hablar con Ramiro.';
   const accessibilityLabel = `${assistantName}. ${pressLabel}`;
   const orbLabel = hasIssue
-    ? 'Error'
+    ? 'Reintenta'
     : isListening
-      ? 'Escuchando'
+      ? 'hablando'
       : isProcessing
-        ? 'Pensando'
+        ? 'Pensando espera'
         : isSpeaking
-          ? 'Hablando'
+          ? 'espera y escucha'
           : status === 'connected'
-            ? 'Mantén'
+            ? 'Mantén y habla'
             : 'Espera';
   const orbState = hasIssue
     ? 'error'
