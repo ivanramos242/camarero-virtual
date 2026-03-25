@@ -475,7 +475,6 @@ export function useLiveSession({
             },
             activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
-          explicitVadSignal: true,
           ...(branding.showDebugTools
             ? {
                 inputAudioTranscription: {},
