@@ -76,6 +76,7 @@ export function useLiveSession({
   const statusRef = useRef<ConnectionStatus>('disconnected');
   const turnStateRef = useRef<VoiceTurnState>('idle');
   const hasRunDiagnosticsRef = useRef(false);
+  const captureTeardownTimeoutRef = useRef<number | null>(null);
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -117,6 +118,13 @@ export function useLiveSession({
     }
   }, []);
 
+  const clearCaptureTeardownTimeout = useCallback(() => {
+    if (captureTeardownTimeoutRef.current) {
+      window.clearTimeout(captureTeardownTimeoutRef.current);
+      captureTeardownTimeoutRef.current = null;
+    }
+  }, []);
+
   const stopPlayback = useCallback(() => {
     sourcesRef.current.forEach((source) => source.stop());
     sourcesRef.current.clear();
@@ -125,6 +133,8 @@ export function useLiveSession({
   }, []);
 
   const teardownAudioCapture = useCallback(() => {
+    clearCaptureTeardownTimeout();
+
     if (inputProcessorRef.current) {
       inputProcessorRef.current.disconnect();
       inputProcessorRef.current.onaudioprocess = null;
@@ -143,7 +153,14 @@ export function useLiveSession({
 
     shouldStreamAudioRef.current = false;
     setVolumeLevel(0);
-  }, []);
+  }, [clearCaptureTeardownTimeout]);
+
+  const scheduleAudioCaptureTeardown = useCallback(() => {
+    clearCaptureTeardownTimeout();
+    captureTeardownTimeoutRef.current = window.setTimeout(() => {
+      teardownAudioCapture();
+    }, 180);
+  }, [clearCaptureTeardownTimeout, teardownAudioCapture]);
 
   const getAudioContextClass = useCallback(() => {
     return window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -152,6 +169,7 @@ export function useLiveSession({
   const resetSession = useCallback(
     (nextStatus: ConnectionStatus) => {
       clearRecordingTimeout();
+      clearCaptureTeardownTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
       sessionPromiseRef.current = null;
@@ -176,7 +194,7 @@ export function useLiveSession({
       setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
       setStatusSafe(nextStatus);
     },
-    [clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [clearCaptureTeardownTimeout, clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -650,6 +668,7 @@ export function useLiveSession({
     }
 
     pendingPressRef.current = true;
+    clearCaptureTeardownTimeout();
 
     try {
       await ensureGeminiSession();
@@ -666,7 +685,7 @@ export function useLiveSession({
       setStatusSafe('error');
       setTurnStateSafe('error');
     }
-  }, [addLog, branding.voiceEnabled, ensureGeminiSession, runVoiceDiagnostics, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
+  }, [addLog, branding.voiceEnabled, clearCaptureTeardownTimeout, ensureGeminiSession, runVoiceDiagnostics, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
 
   const endPressToTalk = useCallback(() => {
     pendingPressRef.current = false;
@@ -680,9 +699,9 @@ export function useLiveSession({
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
     setTurnStateSafe('processing');
     setVolumeLevel(0);
-    teardownAudioCapture();
+    scheduleAudioCaptureTeardown();
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, clearRecordingTimeout, scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 

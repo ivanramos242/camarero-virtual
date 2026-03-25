@@ -1312,6 +1312,17 @@ function AssistantPanel({
           ? disabledMessage || latestError || 'La sesion de voz no esta disponible.'
           : 'Mantener pulsado para hablar con Ramiro.';
   const accessibilityLabel = `${assistantName}. ${pressLabel}`;
+  const orbLabel = hasIssue
+    ? 'Error'
+    : isListening
+      ? 'Escuchando'
+      : isProcessing
+        ? 'Pensando'
+        : isSpeaking
+          ? 'Hablando'
+          : status === 'connected'
+            ? 'Mantén'
+            : 'Espera';
   const orbState = hasIssue
     ? 'error'
     : isListening
@@ -1382,7 +1393,10 @@ function AssistantPanel({
           <span className="voice-orb__button-face" aria-hidden="true">
             <span className="voice-orb__button-edge" />
             <span className="voice-orb__button-core">
-              <Mic size={38} strokeWidth={2.35} />
+              <span className="voice-orb__button-stack">
+                <Mic size={32} strokeWidth={2.35} />
+                <span className="voice-orb__button-label">{orbLabel}</span>
+              </span>
             </span>
           </span>
 
