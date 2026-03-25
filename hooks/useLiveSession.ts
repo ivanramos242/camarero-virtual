@@ -37,6 +37,7 @@ interface ToolResult {
 }
 
 const MAX_RECORDING_MS = 120_000;
+const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 
 export function useLiveSession({
   branding,
@@ -448,6 +449,7 @@ export function useLiveSession({
       setStatusSafe('connecting');
       setTurnStateSafe('idle');
       addLog('system', `Iniciando a ${branding.assistantName}...`);
+      addLog('system', `Voice client build: ${VOICE_CLIENT_BUILD}`);
 
       const token = await createSessionToken();
       if (token.provider !== 'gemini') {
@@ -588,6 +590,18 @@ export function useLiveSession({
           },
         },
       });
+
+      addLog(
+        'system',
+        `Gemini connect config cargada: ${JSON.stringify({
+          responseModalities: ['AUDIO'],
+          automaticActivityDetectionDisabled: true,
+          activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
+          hasInputAudioTranscription: Boolean(branding.showDebugTools),
+          hasOutputAudioTranscription: Boolean(branding.showDebugTools),
+          explicitVadSignal: false,
+        })}`,
+      );
 
       geminiSessionRef.current = session as typeof geminiSessionRef.current;
       sessionRef.current = {

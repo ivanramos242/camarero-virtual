@@ -39,6 +39,9 @@ import type {
   MenuItem,
   PersistedOrder,
 } from './types';
+
+const FRONTEND_BUILD_ID = 'ptt-v2-no-explicit-vad';
+console.info('[voice-ui] frontend build', FRONTEND_BUILD_ID);
 import {
   createOrderOnApi,
   createVoiceSessionToken,
