@@ -253,7 +253,6 @@ const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
             },
             activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
-          explicitVadSignal: true,
         },
         },
       lockAdditionalFields: [],
@@ -361,7 +360,6 @@ const runGeminiLiveDiagnostics = async () => {
               },
               activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             },
-            explicitVadSignal: true,
           },
           callbacks: {
             onopen: () => {
