@@ -15,7 +15,6 @@ import {
   Copy,
   Loader2,
   Mic,
-  MicOff,
   QrCode,
   RefreshCcw,
   Shield,
@@ -977,7 +976,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </aside>
       </div>
 
-      <div className="h-44 lg:hidden" />
+      <div className="h-56 lg:h-40" />
 
       <button
         type="button"
@@ -1295,158 +1294,104 @@ function AssistantPanel({
   showDebug,
   volumeLevel,
 }: AssistantPanelProps) {
-  const statusLabel =
-    status === 'connecting'
-      ? 'Conectando'
-      : turnState === 'recording'
-        ? 'Grabando'
-        : turnState === 'processing'
-          ? 'Procesando'
-          : turnState === 'speaking'
-            ? 'Respondiendo'
-            : status === 'error' || turnState === 'error'
-              ? 'Error'
-              : status === 'connected'
-                ? 'Lista'
-                : 'En espera';
-  const pressLabel =
-    turnState === 'recording'
-      ? 'Grabando... suelta para enviar'
-      : turnState === 'processing'
-        ? 'Ramiro esta pensando...'
-        : turnState === 'speaking'
-          ? 'Interrumpe y vuelve a hablar'
-          : status === 'connecting'
-            ? 'Abriendo sesion de voz...'
-            : 'Manten pulsado para hablar';
-
-  const isBusy = status === 'connecting' || turnState === 'processing';
-  const isLive = turnState === 'recording' || turnState === 'speaking';
+  const isConnecting = status === 'connecting';
+  const isListening = turnState === 'recording';
+  const isProcessing = turnState === 'processing' || isConnecting;
+  const isSpeaking = turnState === 'speaking';
   const hasIssue = disabled || status === 'error' || turnState === 'error' || Boolean(latestError);
-  const buttonTone = hasIssue
-    ? 'border-red-200 bg-red-50 text-red-700'
-    : isLive
-      ? 'border-amber-200 bg-amber-50 text-amber-700'
-      : isBusy
-        ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : 'border-stone-200 bg-white text-stone-900';
-  const coreTone = hasIssue
-    ? 'bg-red-600 text-white'
-    : turnState === 'recording'
-      ? 'bg-red-600 text-white'
-      : isLive
-        ? 'bg-amber-600 text-white'
-        : isBusy
-          ? 'bg-stone-900 text-white'
-          : 'bg-stone-900 text-white';
-  const pulseScale = 1 + Math.min(volumeLevel, 1) * 0.16;
-  const pulseOpacity = turnState === 'recording' ? 0.4 + Math.min(volumeLevel, 1) * 0.28 : 0;
-  const floatingMessage = disabled
-    ? disabledMessage
-    : latestError
-      ? latestError
-      : status === 'connecting'
-        ? 'Preparando micro, carta y acciones disponibles.'
-        : turnState === 'processing'
-          ? 'Ramiro esta procesando tu mensaje.'
-          : turnState === 'speaking'
-            ? 'Ramiro esta respondiendo. Si hace falta, manten pulsado para interrumpir.'
-            : null;
+  const isInteractive = !disabled && !isConnecting;
+  const micEnergy = Math.max(0.12, Math.min(volumeLevel, 1));
+  const visualEnergy = isListening ? micEnergy : isSpeaking ? 0.42 : isProcessing ? 0.2 : 0.08;
+  const pressLabel = isListening
+    ? 'Grabando. Suelta para enviar.'
+    : isProcessing
+      ? 'Procesando tu mensaje.'
+      : isSpeaking
+        ? 'Ramiro esta respondiendo.'
+        : hasIssue
+          ? disabledMessage || latestError || 'La sesion de voz no esta disponible.'
+          : 'Mantener pulsado para hablar con Ramiro.';
+  const accessibilityLabel = `${assistantName}. ${pressLabel}`;
+  const orbState = hasIssue
+    ? 'error'
+    : isListening
+      ? 'listening'
+      : isProcessing
+        ? 'processing'
+        : isSpeaking
+          ? 'speaking'
+          : 'idle';
+  const orbStyle = {
+    '--voice-energy': visualEnergy.toFixed(3),
+    '--voice-mic-scale': (1 + micEnergy * 0.22).toFixed(3),
+    '--voice-speaking-scale': (1 + visualEnergy * 0.14).toFixed(3),
+  } as React.CSSProperties;
 
   return (
-    <>
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+96px)] z-30 flex justify-center px-4 lg:bottom-6">
-        <div className="pointer-events-auto flex flex-col items-center gap-3">
-          {floatingMessage ? (
-            <div
-              className={`max-w-[min(320px,calc(100vw-32px))] rounded-2xl border px-4 py-3 text-center text-sm shadow-sm ${
-                latestError || status === 'error' || turnState === 'error'
-                  ? 'border-red-200 bg-white text-red-700'
-                  : 'border-stone-200 bg-white text-stone-700'
-              }`}
-            >
-              {floatingMessage}
-            </div>
-          ) : null}
+    <div className="pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 flex justify-center px-4 lg:bottom-[16vh]">
+      <div className="pointer-events-auto relative">
+        <button
+          type="button"
+          aria-label={accessibilityLabel}
+          title={pressLabel}
+          disabled={!isInteractive}
+          data-state={orbState}
+          onDoubleClick={() => {
+            if (status === 'connected') {
+              onDisconnect();
+            }
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            if (turnState === 'speaking' || turnState === 'processing') {
+              onCancelCurrentResponse();
+            }
+            void onBeginPressToTalk();
+          }}
+          onPointerUp={(event) => {
+            event.preventDefault();
+            onEndPressToTalk();
+          }}
+          onPointerCancel={() => onEndPressToTalk()}
+          onPointerLeave={(event) => {
+            if (event.buttons === 1) {
+              onEndPressToTalk();
+            }
+          }}
+          onContextMenu={(event) => event.preventDefault()}
+          className="voice-orb group relative inline-flex h-[96px] w-[96px] touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none transition-transform duration-200 ease-out hover:scale-[1.04] focus-visible:scale-[1.04] disabled:cursor-not-allowed lg:h-[104px] lg:w-[104px]"
+          style={orbStyle}
+        >
+          <span className="voice-orb__shadow" aria-hidden="true" />
+          <span className="voice-orb__ghost" aria-hidden="true" />
+          <span className="voice-orb__glow" aria-hidden="true" />
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              aria-label={`${assistantName}: ${pressLabel}`}
-              title={pressLabel}
-              disabled={disabled || status === 'connecting'}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                if (turnState === 'speaking' || turnState === 'processing') {
-                  onCancelCurrentResponse();
-                }
-                void onBeginPressToTalk();
-              }}
-              onPointerUp={(event) => {
-                event.preventDefault();
-                onEndPressToTalk();
-              }}
-              onPointerCancel={() => onEndPressToTalk()}
-              onPointerLeave={(event) => {
-                if (event.buttons === 1) {
-                  onEndPressToTalk();
-                }
-              }}
-              onContextMenu={(event) => event.preventDefault()}
-              className={`group relative inline-flex h-24 w-24 touch-none items-center justify-center rounded-full border shadow-lg shadow-stone-950/10 transition duration-150 hover:shadow-xl disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400 ${buttonTone}`}
-            >
-              <span
-                className="pointer-events-none absolute inset-0 rounded-full border border-current/20 transition duration-150"
-                style={{
-                  opacity: pulseOpacity,
-                  transform: `scale(${pulseScale})`,
-                }}
-              />
-              <span
-                className={`pointer-events-none absolute inset-[7px] rounded-full transition duration-150 ${
-                  turnState === 'recording'
-                    ? 'bg-[radial-gradient(circle_at_center,rgba(220,38,38,0.18),transparent_66%)]'
-                    : isLive
-                      ? 'bg-[radial-gradient(circle_at_center,rgba(217,119,6,0.16),transparent_70%)]'
-                      : 'bg-[radial-gradient(circle_at_center,rgba(28,25,23,0.06),transparent_72%)]'
-                }`}
-              />
-              <span className={`relative flex h-16 w-16 items-center justify-center rounded-full transition ${coreTone}`}>
-                {isBusy ? (
-                  <Loader2 size={24} className="animate-spin" />
-                ) : isLive ? (
-                  <Mic size={24} />
-                ) : (
-                  <MicOff size={24} />
-                )}
-              </span>
-            </button>
+          <span className="voice-orb__processing-orbit" aria-hidden="true" />
 
-            {status === 'connected' ? (
-              <button
-                type="button"
-                onClick={onDisconnect}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 shadow-sm transition hover:bg-stone-50"
-                aria-label="Cerrar sesion de voz"
-                title="Cerrar sesion"
-              >
-                <X size={16} />
-              </button>
-            ) : null}
-          </div>
+          <span className="voice-orb__listening-inner" aria-hidden="true" />
+          <span className="voice-orb__listening-wave voice-orb__listening-wave--a" aria-hidden="true" />
+          <span className="voice-orb__listening-wave voice-orb__listening-wave--b" aria-hidden="true" />
+          <span className="voice-orb__listening-blur" aria-hidden="true" />
 
-          <div className="rounded-full border border-stone-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm">
-            {statusLabel}
-          </div>
+          <span className="voice-orb__speaking-ring" aria-hidden="true" />
+          <span className="voice-orb__speaking-pulse voice-orb__speaking-pulse--a" aria-hidden="true" />
+          <span className="voice-orb__speaking-pulse voice-orb__speaking-pulse--b" aria-hidden="true" />
 
-          {showDebug && logs.length > 0 ? (
-            <div className="max-w-[min(340px,calc(100vw-32px))] rounded-2xl border border-stone-200 bg-white px-4 py-3 text-center text-xs text-stone-600 shadow-sm">
-              Ultimo evento: {logs[logs.length - 1]?.text}
-            </div>
-          ) : null}
-        </div>
+          <span className="voice-orb__button-face" aria-hidden="true">
+            <span className="voice-orb__button-edge" />
+            <span className="voice-orb__button-core">
+              <Mic size={38} strokeWidth={2.35} />
+            </span>
+          </span>
+
+          <span className="sr-only">
+            {showDebug && logs.length > 0 ? `Ultimo evento: ${logs[logs.length - 1]?.text}. ` : ''}
+            {hasIssue ? `Incidencia: ${disabledMessage || latestError || 'Sesion no disponible'}. ` : ''}
+            {status === 'connected' ? 'Doble toque para cerrar la sesion de voz.' : ''}
+          </span>
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
