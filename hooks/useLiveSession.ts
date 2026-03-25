@@ -272,6 +272,7 @@ export function useLiveSession({
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const lastAssistantTextRef = useRef('');
   const lastOutputTranscriptRef = useRef('');
+  const pendingEndSessionRef = useRef(false);
   const latestInputTranscriptRef = useRef('');
   const currentTurnHadToolCallRef = useRef(false);
   const currentTurnLocallyHandledRef = useRef(false);
@@ -336,6 +337,7 @@ export function useLiveSession({
     playedAudioChunksRef.current.clear();
     lastAssistantTextRef.current = '';
     lastOutputTranscriptRef.current = '';
+    pendingEndSessionRef.current = false;
     latestInputTranscriptRef.current = '';
     currentTurnHadToolCallRef.current = false;
     currentTurnLocallyHandledRef.current = false;
@@ -643,9 +645,7 @@ export function useLiveSession({
         addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmacion por voz ha fallado.');
       } else if (name === 'endSession') {
         result = { success: true, message: 'Sesion cerrada.' };
-        window.setTimeout(() => {
-          disconnect();
-        }, 1200);
+        pendingEndSessionRef.current = true;
       }
 
       return result;
@@ -731,8 +731,12 @@ export function useLiveSession({
       setTurnStateSafe('idle');
       setVolumeLevel(0);
       scheduleAudioCaptureTeardown();
+      if (pendingEndSessionRef.current) {
+        pendingEndSessionRef.current = false;
+        disconnect();
+      }
     }
-  }, [scheduleAudioCaptureTeardown, setTurnStateSafe]);
+  }, [disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
   const speakLocalAssistantMessage = useCallback(
     (message: string) => {
