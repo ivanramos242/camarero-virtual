@@ -38,6 +38,7 @@ interface ToolResult {
 
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
+const PLAYBACK_GAIN = 2.8;
 
 export function useLiveSession({
   branding,
@@ -59,6 +60,8 @@ export function useLiveSession({
   const [lastAssistantMessage, setLastAssistantMessage] = useState('');
 
   const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackGainRef = useRef<GainNode | null>(null);
+  const playbackCompressorRef = useRef<DynamicsCompressorNode | null>(null);
   const inputContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const inputProcessorRef = useRef<ScriptProcessorNode | null>(null);
@@ -183,6 +186,8 @@ export function useLiveSession({
         void audioContextRef.current.close();
         audioContextRef.current = null;
       }
+      playbackGainRef.current = null;
+      playbackCompressorRef.current = null;
 
       teardownAudioCapture();
 
@@ -385,6 +390,19 @@ export function useLiveSession({
     inputContextRef.current = captureContext;
     audioContextRef.current = playbackContext;
 
+    const playbackGain = playbackContext.createGain();
+    playbackGain.gain.value = PLAYBACK_GAIN;
+    const playbackCompressor = playbackContext.createDynamicsCompressor();
+    playbackCompressor.threshold.value = -24;
+    playbackCompressor.knee.value = 18;
+    playbackCompressor.ratio.value = 10;
+    playbackCompressor.attack.value = 0.003;
+    playbackCompressor.release.value = 0.22;
+    playbackGain.connect(playbackCompressor);
+    playbackCompressor.connect(playbackContext.destination);
+    playbackGainRef.current = playbackGain;
+    playbackCompressorRef.current = playbackCompressor;
+
     const source = captureContext.createMediaStreamSource(stream);
     const processor = captureContext.createScriptProcessor(4096, 1, 1);
     inputProcessorRef.current = processor;
@@ -572,7 +590,7 @@ export function useLiveSession({
               const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
               const source = audioContext.createBufferSource();
               source.buffer = audioBuffer;
-              source.connect(audioContext.destination);
+              source.connect(playbackGainRef.current ?? audioContext.destination);
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               setTurnStateSafe('speaking');
