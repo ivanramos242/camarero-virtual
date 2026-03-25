@@ -38,7 +38,7 @@ interface ToolResult {
 
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
-const PLAYBACK_GAIN = 2.8;
+const PLAYBACK_GAIN = 2.15;
 
 export function useLiveSession({
   branding,
@@ -393,11 +393,11 @@ export function useLiveSession({
     const playbackGain = playbackContext.createGain();
     playbackGain.gain.value = PLAYBACK_GAIN;
     const playbackCompressor = playbackContext.createDynamicsCompressor();
-    playbackCompressor.threshold.value = -24;
-    playbackCompressor.knee.value = 18;
-    playbackCompressor.ratio.value = 10;
-    playbackCompressor.attack.value = 0.003;
-    playbackCompressor.release.value = 0.22;
+    playbackCompressor.threshold.value = -18;
+    playbackCompressor.knee.value = 10;
+    playbackCompressor.ratio.value = 3;
+    playbackCompressor.attack.value = 0.008;
+    playbackCompressor.release.value = 0.08;
     playbackGain.connect(playbackCompressor);
     playbackCompressor.connect(playbackContext.destination);
     playbackGainRef.current = playbackGain;
