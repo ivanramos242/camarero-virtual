@@ -1383,9 +1383,6 @@ function AssistantPanel({
               </div>
               <div className="space-y-2 text-sm text-stone-600">
                 <p>{pressHelper}</p>
-                {lastAssistantMessage ? (
-                  <p className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-stone-800 shadow-sm">{lastAssistantMessage}</p>
-                ) : null}
               </div>
             </div>
           ) : (
