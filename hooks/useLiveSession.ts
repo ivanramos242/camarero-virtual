@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EndSensitivity, FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, StartSensitivity, Type } from '@google/genai';
+import { ActivityHandling, FunctionDeclaration, GoogleGenAI, LiveServerMessage, Modality, Type } from '@google/genai';
 
 import { buildSystemInstruction } from '../constants';
 import type {
@@ -9,10 +9,10 @@ import type {
   GeminiSessionTokenResponse,
   LogMessage,
   MenuItem,
-  OpenAiSessionTokenResponse,
   SessionTokenResponse,
+  VoiceTurnState,
 } from '../types';
-import { createOpenAiRealtimeAnswer, fetchVoiceDiagnostics } from '../utils/api';
+import { fetchVoiceDiagnostics } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
 
 interface UseLiveSessionProps {
@@ -36,54 +36,7 @@ interface ToolResult {
   count?: number;
 }
 
-interface OpenAiRealtimeEvent {
-  type: string;
-  event_id?: string;
-  delta?: string;
-  item?: {
-    type?: string;
-    content?: Array<{ text?: string; transcript?: string }>;
-  };
-  response?: {
-    output?: Array<{
-      type?: string;
-      content?: Array<{ text?: string; transcript?: string }>;
-    }>;
-  };
-  name?: string;
-  call_id?: string;
-  arguments?: string;
-  error?: {
-    message?: string;
-  };
-}
-
-const openAiVoiceToolSchema = {
-  type: 'object',
-  properties: {
-    count: { type: 'number', description: 'Numero de comensales' },
-    name: { type: 'string', description: 'Nombre del cliente o reserva' },
-  },
-  required: ['count'],
-};
-
-const openAiAddToolSchema = {
-  type: 'object',
-  properties: {
-    itemName: { type: 'string', description: 'Nombre del plato' },
-    quantity: { type: 'number', description: 'Cantidad' },
-    notes: { type: 'string', description: 'Observaciones' },
-  },
-  required: ['itemName', 'quantity'],
-};
-
-const openAiRemoveToolSchema = {
-  type: 'object',
-  properties: {
-    itemName: { type: 'string', description: 'Nombre del plato a corregir' },
-  },
-  required: ['itemName'],
-};
+const MAX_RECORDING_MS = 120_000;
 
 export function useLiveSession({
   branding,
@@ -99,7 +52,7 @@ export function useLiveSession({
   clientName,
 }: UseLiveSessionProps) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const [isMuted, setIsMuted] = useState(false);
+  const [turnState, setTurnState] = useState<VoiceTurnState>('idle');
   const [volumeLevel, setVolumeLevel] = useState(0);
   const [logs, setLogs] = useState<LogMessage[]>([]);
   const [lastAssistantMessage, setLastAssistantMessage] = useState('');
@@ -108,13 +61,19 @@ export function useLiveSession({
   const inputContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const inputProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const nextStartTimeRef = useRef(0);
   const sessionRef = useRef<{ close: () => void } | null>(null);
+  const geminiSessionRef = useRef<{ sendRealtimeInput: (params: Record<string, unknown>) => void; sendToolResponse: (params: Record<string, unknown>) => void; close: () => void } | null>(null);
+  const sessionPromiseRef = useRef<Promise<void> | null>(null);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const dataChannelRef = useRef<RTCDataChannel | null>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const nextStartTimeRef = useRef(0);
   const transcriptRef = useRef('');
+  const recordingTimeoutRef = useRef<number | null>(null);
+  const shouldStreamAudioRef = useRef(false);
+  const pendingPressRef = useRef(false);
+  const manualDisconnectRef = useRef(false);
+  const modelTurnCompleteRef = useRef(false);
+  const statusRef = useRef<ConnectionStatus>('disconnected');
+  const turnStateRef = useRef<VoiceTurnState>('idle');
   const hasRunDiagnosticsRef = useRef(false);
 
   const cartItemsRef = useRef(cartItems);
@@ -129,11 +88,15 @@ export function useLiveSession({
     menuRef.current = menu;
   }, [cartItems, clientName, dinersCount, menu]);
 
-  useEffect(() => {
-    mediaStreamRef.current?.getAudioTracks().forEach((track) => {
-      track.enabled = !isMuted;
-    });
-  }, [isMuted]);
+  const setStatusSafe = useCallback((nextStatus: ConnectionStatus) => {
+    statusRef.current = nextStatus;
+    setStatus(nextStatus);
+  }, []);
+
+  const setTurnStateSafe = useCallback((nextTurnState: VoiceTurnState) => {
+    turnStateRef.current = nextTurnState;
+    setTurnState(nextTurnState);
+  }, []);
 
   const addLog = useCallback((role: LogMessage['role'], text: string) => {
     setLogs((previousLogs) => [
@@ -146,55 +109,69 @@ export function useLiveSession({
     ]);
   }, []);
 
+  const clearRecordingTimeout = useCallback(() => {
+    if (recordingTimeoutRef.current) {
+      window.clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    sourcesRef.current.forEach((source) => source.stop());
+    sourcesRef.current.clear();
+    nextStartTimeRef.current = 0;
+    modelTurnCompleteRef.current = false;
+  }, []);
+
   const getAudioContextClass = useCallback(() => {
     return window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   }, []);
 
-  const resetSession = useCallback((nextStatus: ConnectionStatus) => {
-    const activeSession = sessionRef.current;
-    sessionRef.current = null;
-    activeSession?.close();
+  const resetSession = useCallback(
+    (nextStatus: ConnectionStatus) => {
+      clearRecordingTimeout();
+      shouldStreamAudioRef.current = false;
+      pendingPressRef.current = false;
+      sessionPromiseRef.current = null;
 
-    dataChannelRef.current?.close();
-    dataChannelRef.current = null;
+      const activeSession = sessionRef.current;
+      sessionRef.current = null;
+      activeSession?.close();
+      geminiSessionRef.current = null;
 
-    peerConnectionRef.current?.close();
-    peerConnectionRef.current = null;
+      if (inputProcessorRef.current) {
+        inputProcessorRef.current.disconnect();
+        inputProcessorRef.current = null;
+      }
 
-    remoteAudioRef.current?.pause();
-    remoteAudioRef.current = null;
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
 
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
+      if (inputContextRef.current) {
+        void inputContextRef.current.close();
+        inputContextRef.current = null;
+      }
 
-    if (inputProcessorRef.current) {
-      inputProcessorRef.current.disconnect();
-      inputProcessorRef.current = null;
-    }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
 
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    if (inputContextRef.current) {
-      void inputContextRef.current.close();
-      inputContextRef.current = null;
-    }
-
-    sourcesRef.current.forEach((source) => source.stop());
-    sourcesRef.current.clear();
-    nextStartTimeRef.current = 0;
-    transcriptRef.current = '';
-    hasRunDiagnosticsRef.current = false;
-    setLastAssistantMessage('');
-    setVolumeLevel(0);
-    setStatus(nextStatus);
-  }, []);
+      stopPlayback();
+      transcriptRef.current = '';
+      hasRunDiagnosticsRef.current = false;
+      setLastAssistantMessage('');
+      setVolumeLevel(0);
+      setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
+      setStatusSafe(nextStatus);
+    },
+    [clearRecordingTimeout, setStatusSafe, setTurnStateSafe, stopPlayback],
+  );
 
   const disconnect = useCallback(() => {
+    manualDisconnectRef.current = true;
     addLog('system', 'Sesion cerrada.');
     resetSession('disconnected');
   }, [addLog, resetSession]);
@@ -312,18 +289,6 @@ export function useLiveSession({
     [addToOrderTool, confirmOrderTool, endSessionTool, getMenuTool, removeFromOrderTool, setDinersTool],
   );
 
-  const openAiTools = useMemo(
-    () => [
-      { type: 'function', name: 'getMenu', description: 'Devuelve la carta disponible.' },
-      { type: 'function', name: 'setDiners', description: 'Actualiza el numero de comensales.', parameters: openAiVoiceToolSchema },
-      { type: 'function', name: 'addToOrder', description: 'Anade platos al pedido actual.', parameters: openAiAddToolSchema },
-      { type: 'function', name: 'removeFromOrder', description: 'Quita una unidad del plato indicado.', parameters: openAiRemoveToolSchema },
-      { type: 'function', name: 'confirmOrder', description: 'Confirma el pedido y lo envia a cocina.' },
-      { type: 'function', name: 'endSession', description: 'Cierra la sesion cuando la conversacion haya terminado.' },
-    ],
-    [],
-  );
-
   const runTool = useCallback(
     async (name: string, args: Record<string, unknown>) => {
       let result: ToolResult = { success: true };
@@ -375,58 +340,130 @@ export function useLiveSession({
     [addLog, disconnect, onAddToCart, onConfirmOrder, onRemoveFromOrder, onSetDiners],
   );
 
-  const setupVolumeMeter = useCallback(
-    (stream: MediaStream, sampleRate: number) => {
-      const AudioContextClass = getAudioContextClass();
-      if (!AudioContextClass) {
-        throw new Error('Este navegador no soporta audio en tiempo real.');
+  const ensureAudioPipeline = useCallback(async () => {
+    if (mediaStreamRef.current && inputProcessorRef.current) {
+      return;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStreamRef.current = stream;
+
+    const AudioContextClass = getAudioContextClass();
+    if (!AudioContextClass) {
+      throw new Error('Este navegador no soporta audio en tiempo real.');
+    }
+
+    const captureContext = new AudioContextClass({ sampleRate: 16_000 });
+    const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
+    inputContextRef.current = captureContext;
+    audioContextRef.current = playbackContext;
+
+    const source = captureContext.createMediaStreamSource(stream);
+    const processor = captureContext.createScriptProcessor(4096, 1, 1);
+    inputProcessorRef.current = processor;
+
+    processor.onaudioprocess = (event) => {
+      const inputData = event.inputBuffer.getChannelData(0);
+      let energy = 0;
+
+      for (let index = 0; index < inputData.length; index += 1) {
+        energy += inputData[index] * inputData[index];
       }
 
-      const captureContext = new AudioContextClass({ sampleRate });
-      inputContextRef.current = captureContext;
+      const nextVolume = Math.sqrt(energy / inputData.length);
+      setVolumeLevel(shouldStreamAudioRef.current ? nextVolume : 0);
 
-      const source = captureContext.createMediaStreamSource(stream);
-      const processor = captureContext.createScriptProcessor(4096, 1, 1);
-      inputProcessorRef.current = processor;
-
-      processor.onaudioprocess = (event) => {
-        const inputData = event.inputBuffer.getChannelData(0);
-        let energy = 0;
-
-        for (let index = 0; index < inputData.length; index += 1) {
-          energy += inputData[index] * inputData[index];
-        }
-
-        setVolumeLevel(Math.sqrt(energy / inputData.length));
-      };
-
-      source.connect(processor);
-      processor.connect(captureContext.destination);
-
-      return { captureContext, processor };
-    },
-    [getAudioContextClass],
-  );
-
-  const connectGemini = useCallback(
-    async (token: GeminiSessionTokenResponse, stream: MediaStream) => {
-      const AudioContextClass = getAudioContextClass();
-      if (!AudioContextClass) {
-        throw new Error('Este navegador no soporta audio en tiempo real.');
+      if (!shouldStreamAudioRef.current || !geminiSessionRef.current) {
+        return;
       }
 
-      const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
-      audioContextRef.current = playbackContext;
+      geminiSessionRef.current.sendRealtimeInput({
+        audio: createPcmBlob(inputData),
+      });
+    };
 
-      const { captureContext, processor } = setupVolumeMeter(stream, 16_000);
+    source.connect(processor);
+    processor.connect(captureContext.destination);
+
+    await captureContext.resume();
+    await playbackContext.resume();
+  }, [getAudioContextClass]);
+
+  const finalizeTurnIfReady = useCallback(() => {
+    if (sourcesRef.current.size > 0) {
+      return;
+    }
+
+    if (turnStateRef.current !== 'recording') {
+      setTurnStateSafe('idle');
+      setVolumeLevel(0);
+    }
+  }, [setTurnStateSafe]);
+
+  const cancelCurrentResponse = useCallback(() => {
+    stopPlayback();
+    if (turnStateRef.current === 'speaking' || turnStateRef.current === 'processing') {
+      setTurnStateSafe('idle');
+    }
+  }, [setTurnStateSafe, stopPlayback]);
+
+  const startRecordingInternal = useCallback(() => {
+    if (!geminiSessionRef.current || !inputProcessorRef.current) {
+      return;
+    }
+
+    clearRecordingTimeout();
+    pendingPressRef.current = true;
+    cancelCurrentResponse();
+    geminiSessionRef.current.sendRealtimeInput({ activityStart: {} });
+    shouldStreamAudioRef.current = true;
+    transcriptRef.current = '';
+    modelTurnCompleteRef.current = false;
+    setTurnStateSafe('recording');
+    addLog('system', 'Grabando audio...');
+
+    recordingTimeoutRef.current = window.setTimeout(() => {
+      if (pendingPressRef.current) {
+        pendingPressRef.current = false;
+        shouldStreamAudioRef.current = false;
+        geminiSessionRef.current?.sendRealtimeInput({ activityEnd: {} });
+        setTurnStateSafe('processing');
+        addLog('system', 'Audio enviado por limite de tiempo.');
+      }
+    }, MAX_RECORDING_MS);
+  }, [addLog, cancelCurrentResponse, clearRecordingTimeout, setTurnStateSafe]);
+
+  const ensureGeminiSession = useCallback(async () => {
+    if (statusRef.current === 'connected' && geminiSessionRef.current) {
+      return;
+    }
+
+    if (sessionPromiseRef.current) {
+      await sessionPromiseRef.current;
+      return;
+    }
+
+    sessionPromiseRef.current = (async () => {
+      manualDisconnectRef.current = false;
+      setStatusSafe('connecting');
+      setTurnStateSafe('idle');
+      addLog('system', `Iniciando a ${branding.assistantName}...`);
+
+      const token = await createSessionToken();
+      if (token.provider !== 'gemini') {
+        throw new Error('El modo push-to-talk solo esta habilitado para Gemini en esta version.');
+      }
+
+      await ensureAudioPipeline();
+
       const ai = new GoogleGenAI({
-        apiKey: token.token,
+        apiKey: (token as GeminiSessionTokenResponse).token,
         httpOptions: {
           apiVersion: token.apiVersion,
         },
       });
 
-      const sessionPromise = ai.live.connect({
+      const session = await ai.live.connect({
         model: token.model,
         config: {
           responseModalities: [Modality.AUDIO],
@@ -434,12 +471,11 @@ export function useLiveSession({
           tools: geminiTools,
           realtimeInputConfig: {
             automaticActivityDetection: {
-              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-              prefixPaddingMs: 80,
-              silenceDurationMs: 400,
+              disabled: true,
             },
+            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
+          explicitVadSignal: true,
           ...(branding.showDebugTools
             ? {
                 inputAudioTranscription: {},
@@ -457,26 +493,7 @@ export function useLiveSession({
         callbacks: {
           onopen: () => {
             addLog('system', `Sesion de voz abierta con ${branding.assistantName} por Gemini.`);
-            setStatus('connected');
-
-            processor.onaudioprocess = (event) => {
-              if (isMuted) {
-                return;
-              }
-
-              const inputData = event.inputBuffer.getChannelData(0);
-              let energy = 0;
-              for (let index = 0; index < inputData.length; index += 1) {
-                energy += inputData[index] * inputData[index];
-              }
-
-              setVolumeLevel(Math.sqrt(energy / inputData.length));
-
-              const pcmAudio = createPcmBlob(inputData);
-              void sessionPromise.then((session) => {
-                session.sendRealtimeInput({ audio: pcmAudio });
-              });
-            };
+            setStatusSafe('connected');
           },
           onmessage: async (message: LiveServerMessage) => {
             const textParts = message.serverContent?.modelTurn?.parts
@@ -500,11 +517,6 @@ export function useLiveSession({
               addLog('assistant', outputTranscript);
             }
 
-            const turnCompleteReason = message.serverContent?.turnCompleteReason;
-            if (turnCompleteReason) {
-              addLog('system', `Gemini ha cerrado un turno: ${turnCompleteReason}.`);
-            }
-
             if (message.toolCall) {
               const responses = [];
 
@@ -517,12 +529,10 @@ export function useLiveSession({
                 });
               }
 
-              void sessionPromise.then((session) => {
-                session.sendToolResponse({ functionResponses: responses });
-              });
+              geminiSessionRef.current?.sendToolResponse({ functionResponses: responses });
             }
 
-            const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+            const base64Audio = message.serverContent?.modelTurn?.parts?.find((part) => 'inlineData' in part && part.inlineData?.data)?.inlineData?.data;
             if (base64Audio && audioContextRef.current) {
               const audioContext = audioContextRef.current;
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
@@ -533,212 +543,132 @@ export function useLiveSession({
               source.connect(audioContext.destination);
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
+              setTurnStateSafe('speaking');
 
               sourcesRef.current.add(source);
               source.onended = () => {
                 sourcesRef.current.delete(source);
+                if (modelTurnCompleteRef.current) {
+                  finalizeTurnIfReady();
+                }
               };
             }
 
             if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach((source) => source.stop());
-              sourcesRef.current.clear();
-              nextStartTimeRef.current = 0;
+              stopPlayback();
               addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
+            }
+
+            if (message.serverContent?.turnComplete) {
+              modelTurnCompleteRef.current = true;
+              finalizeTurnIfReady();
             }
           },
           onclose: (event) => {
+            geminiSessionRef.current = null;
+            sessionRef.current = null;
+            sessionPromiseRef.current = null;
             const code = typeof event?.code === 'number' ? ` Codigo: ${event.code}.` : '';
-            const reason =
-              typeof event?.reason === 'string' && event.reason.trim().length > 0
-                ? ` Motivo: ${event.reason}.`
-                : '';
+            const reason = typeof event?.reason === 'string' && event.reason.trim() ? ` Motivo: ${event.reason}.` : '';
             addLog('system', `La conexion de voz de Gemini se ha cerrado.${code}${reason}`);
-            if (!transcriptRef.current) {
+
+            if (!manualDisconnectRef.current) {
               void runVoiceDiagnostics();
+              setTurnStateSafe('error');
+              setStatusSafe('error');
+            } else {
+              setTurnStateSafe('idle');
+              setStatusSafe('disconnected');
             }
-            resetSession('disconnected');
           },
           onerror: (error) => {
             addLog('error', error.message || 'Se ha producido un error en la sesion de Gemini.');
             void runVoiceDiagnostics();
-            resetSession('error');
+            setTurnStateSafe('error');
+            setStatusSafe('error');
           },
         },
       });
 
-      sessionRef.current = await sessionPromise;
-      void captureContext.resume();
-    },
-    [addLog, branding.assistantName, geminiTools, getAudioContextClass, isMuted, resetSession, runTool, setupVolumeMeter, systemInstruction],
-  );
-
-  const connectOpenAi = useCallback(
-    async (token: OpenAiSessionTokenResponse, stream: MediaStream) => {
-      setupVolumeMeter(stream, 16_000);
-
-      const peerConnection = new RTCPeerConnection();
-      const remoteAudio = new Audio();
-      remoteAudio.autoplay = true;
-      peerConnectionRef.current = peerConnection;
-      remoteAudioRef.current = remoteAudio;
-
-      const dataChannel = peerConnection.createDataChannel('oai-events');
-      dataChannelRef.current = dataChannel;
-
-      peerConnection.ontrack = (event) => {
-        remoteAudio.srcObject = event.streams[0];
-        void remoteAudio.play().catch(() => undefined);
-      };
-
-      stream.getTracks().forEach((track) => {
-        peerConnection.addTrack(track, stream);
-      });
-
-      const sendEvent = (event: Record<string, unknown>) => {
-        if (dataChannel.readyState === 'open') {
-          dataChannel.send(JSON.stringify(event));
-        }
-      };
-
-      dataChannel.onopen = () => {
-        addLog('system', `Sesion de voz abierta con ${branding.assistantName} por OpenAI.`);
-        setStatus('connected');
-        sendEvent({
-          type: 'session.update',
-          session: {
-            instructions: systemInstruction,
-            voice: token.voice,
-            tools: openAiTools,
-            tool_choice: 'auto',
-          },
-        });
-      };
-
-      dataChannel.onclose = () => {
-        addLog('system', 'La conexion de voz de OpenAI se ha cerrado.');
-        resetSession('disconnected');
-      };
-
-      dataChannel.onerror = () => {
-        addLog('error', 'Se ha producido un error en la sesion de OpenAI.');
-        resetSession('error');
-      };
-
-      dataChannel.onmessage = (messageEvent) => {
-        void (async () => {
-          const event = JSON.parse(messageEvent.data) as OpenAiRealtimeEvent;
-
-          if (event.type === 'response.audio_transcript.delta' || event.type === 'response.output_text.delta' || event.type === 'response.output_audio_transcript.delta') {
-            transcriptRef.current += event.delta ?? '';
-            setLastAssistantMessage(transcriptRef.current.trim());
-            return;
-          }
-
-          if (event.type === 'response.created') {
-            transcriptRef.current = '';
-            return;
-          }
-
-          if (event.type === 'response.output_item.done' || event.type === 'response.done') {
-            const outputItems = event.item ? [event.item] : event.response?.output ?? [];
-            const assistantText = outputItems
-              .flatMap((item) => item.content ?? [])
-              .map((content) => content.transcript || content.text || '')
-              .join(' ')
-              .trim();
-
-            if (assistantText) {
-              setLastAssistantMessage(assistantText);
-              addLog('assistant', assistantText);
-            }
-            return;
-          }
-
-          if (event.type === 'response.function_call_arguments.done') {
-            const toolArgs = event.arguments ? (JSON.parse(event.arguments) as Record<string, unknown>) : {};
-            const result = await runTool(event.name || '', toolArgs);
-
-            sendEvent({
-              type: 'conversation.item.create',
-              item: {
-                type: 'function_call_output',
-                call_id: event.call_id,
-                output: JSON.stringify({ result }),
-              },
-            });
-            sendEvent({ type: 'response.create' });
-            return;
-          }
-
-          if (event.type === 'error') {
-            addLog('error', event.error?.message || 'OpenAI ha devuelto un error en tiempo real.');
-          }
-        })();
-      };
-
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-
-      const answerSdp = await createOpenAiRealtimeAnswer(token.endpoint, offer.sdp || '');
-      await peerConnection.setRemoteDescription({
-        type: 'answer',
-        sdp: answerSdp,
-      });
-
+      geminiSessionRef.current = session as typeof geminiSessionRef.current;
       sessionRef.current = {
         close: () => {
-          dataChannel.close();
-          peerConnection.close();
-          remoteAudio.pause();
-          remoteAudio.srcObject = null;
+          session.close();
         },
       };
-    },
-    [addLog, branding.assistantName, openAiTools, resetSession, runTool, setupVolumeMeter, systemInstruction],
-  );
+    })();
 
-  const connect = useCallback(async () => {
+    try {
+      await sessionPromiseRef.current;
+    } finally {
+      sessionPromiseRef.current = null;
+    }
+  }, [
+    addLog,
+    branding.assistantName,
+    branding.showDebugTools,
+    createSessionToken,
+    ensureAudioPipeline,
+    finalizeTurnIfReady,
+    geminiTools,
+    runTool,
+    runVoiceDiagnostics,
+    setStatusSafe,
+    setTurnStateSafe,
+    stopPlayback,
+    systemInstruction,
+  ]);
+
+  const beginPressToTalk = useCallback(async () => {
     if (!branding.voiceEnabled) {
       addLog('error', 'La voz no esta disponible en este entorno. Puedes seguir usando la carta manual.');
-      setStatus('error');
+      setStatusSafe('error');
+      setTurnStateSafe('error');
       return;
     }
 
+    pendingPressRef.current = true;
+
     try {
-      addLog('system', `Iniciando a ${branding.assistantName}...`);
-      setStatus('connecting');
-
-      const token = await createSessionToken();
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = !isMuted;
-      });
-
-      if (token.provider === 'gemini') {
-        await connectGemini(token, stream);
+      await ensureGeminiSession();
+      if (!pendingPressRef.current) {
         return;
       }
 
-      await connectOpenAi(token, stream);
+      startRecordingInternal();
     } catch (connectionError) {
-      const message =
-        connectionError instanceof Error ? connectionError.message : 'No se pudo iniciar la sesion de voz.';
+      const message = connectionError instanceof Error ? connectionError.message : 'No se pudo iniciar la sesion de voz.';
       addLog('error', message);
       void runVoiceDiagnostics();
-      resetSession('error');
+      setStatusSafe('error');
+      setTurnStateSafe('error');
     }
-  }, [addLog, branding.assistantName, branding.voiceEnabled, connectGemini, connectOpenAi, createSessionToken, isMuted, resetSession, runVoiceDiagnostics]);
+  }, [addLog, branding.voiceEnabled, ensureGeminiSession, runVoiceDiagnostics, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
+
+  const endPressToTalk = useCallback(() => {
+    pendingPressRef.current = false;
+
+    if (turnStateRef.current !== 'recording' || !geminiSessionRef.current) {
+      return;
+    }
+
+    clearRecordingTimeout();
+    shouldStreamAudioRef.current = false;
+    geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
+    setTurnStateSafe('processing');
+    setVolumeLevel(0);
+    addLog('system', 'Audio enviado a Ramiro.');
+  }, [addLog, clearRecordingTimeout, setTurnStateSafe]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 
   return {
     status,
-    connect,
+    turnState,
+    beginPressToTalk,
+    endPressToTalk,
+    cancelCurrentResponse,
     disconnect,
-    isMuted,
-    setIsMuted,
     volumeLevel,
     logs,
     lastAssistantMessage,

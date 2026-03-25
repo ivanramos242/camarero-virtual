@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { EndSensitivity, GoogleGenAI, Modality, StartSensitivity } from '@google/genai';
+import { ActivityHandling, GoogleGenAI, Modality } from '@google/genai';
 import cookieParser from 'cookie-parser';
 import express from 'express';
 import multer from 'multer';
@@ -249,12 +249,11 @@ const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
           responseModalities: [Modality.AUDIO],
           realtimeInputConfig: {
             automaticActivityDetection: {
-              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-              prefixPaddingMs: 80,
-              silenceDurationMs: 400,
+              disabled: true,
             },
+            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
+          explicitVadSignal: true,
         },
         },
       lockAdditionalFields: [],
@@ -358,12 +357,11 @@ const runGeminiLiveDiagnostics = async () => {
             responseModalities: [Modality.AUDIO],
             realtimeInputConfig: {
               automaticActivityDetection: {
-                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
-                prefixPaddingMs: 80,
-                silenceDurationMs: 400,
+                disabled: true,
               },
+              activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             },
+            explicitVadSignal: true,
           },
           callbacks: {
             onopen: () => {

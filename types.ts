@@ -221,6 +221,7 @@ export interface TablesQrBatchResponse {
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type VoiceTurnState = 'idle' | 'recording' | 'processing' | 'speaking' | 'error';
 
 export interface LogMessage {
   role: 'assistant' | 'system' | 'error';
