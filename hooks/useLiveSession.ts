@@ -928,9 +928,6 @@ export function useLiveSession({
         return false;
       }
 
-      stopPlayback();
-      cancelLocalSpeech();
-
       if (intent.type === 'add') {
         if (currentTurnAddedToOrderRef.current) {
           return false;
@@ -940,7 +937,7 @@ export function useLiveSession({
         currentTurnAddedToOrderRef.current = true;
         onAddToCart(intent.item, intent.quantity);
         resetPendingOrderConfirmation();
-        speakLocalAssistantMessage(`Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`);
+        addLog('system', `Accion local: anadido ${intent.quantity}x ${intent.item.name}.`);
         return true;
       }
 
@@ -953,7 +950,7 @@ export function useLiveSession({
         currentTurnRemovedFromOrderRef.current = true;
         onRemoveFromOrder(intent.item.name);
         resetPendingOrderConfirmation();
-        speakLocalAssistantMessage(`De acuerdo, quito una unidad de ${intent.item.name}.`);
+        addLog('system', `Accion local: quitado ${intent.item.name}.`);
         return true;
       }
 
@@ -964,7 +961,7 @@ export function useLiveSession({
       currentTurnLocallyHandledRef.current = true;
       if (cartItemsRef.current.length === 0) {
         resetPendingOrderConfirmation();
-        speakLocalAssistantMessage('No veo ningun plato en el pedido todavia.');
+        addLog('error', 'Confirmacion ignorada: no hay platos en el pedido.');
         return true;
       }
 
@@ -972,27 +969,23 @@ export function useLiveSession({
       if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
         pendingOrderConfirmationRef.current = true;
         pendingOrderConfirmationSignatureRef.current = currentCartSignature;
-        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
+        addLog('system', 'Confirmacion en dos pasos: resumen pendiente antes de enviar.');
         return true;
       }
 
       const transcript = latestInputTranscriptRef.current.trim();
       if (!isExplicitFinalConfirmation(transcript)) {
-        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
+        addLog('system', 'Confirmacion final pendiente: falta un si explicito del cliente.');
         return true;
       }
 
       const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
       resetPendingOrderConfirmation();
-      if (success) {
-        currentTurnConfirmedOrderRef.current = true;
-        speakLocalAssistantMessage('Perfecto, pedido confirmado y enviado a cocina.');
-      } else {
-        speakLocalAssistantMessage('No he podido confirmar el pedido. Intentalo de nuevo.');
-      }
+      currentTurnConfirmedOrderRef.current = success;
+      addLog(success ? 'system' : 'error', success ? 'Accion local: pedido confirmado.' : 'Accion local: no se pudo confirmar el pedido.');
       return true;
     },
-    [cancelLocalSpeech, onAddToCart, onConfirmOrder, onRemoveFromOrder, resetPendingOrderConfirmation, speakLocalAssistantMessage, stopPlayback],
+    [addLog, onAddToCart, onConfirmOrder, onRemoveFromOrder, resetPendingOrderConfirmation],
   );
 
   const tryHandlePendingAddFallback = useCallback(() => {
@@ -1223,7 +1216,7 @@ export function useLiveSession({
               ?.map((part) => ('text' in part ? part.text : undefined))
               .filter((part): part is string => Boolean(part));
 
-            if (!pendingDeterministicIntentRef.current && textParts && textParts.length > 0) {
+            if (textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
               const assistantSignature = normalizeVoiceText(assistantText);
               if (assistantText && assistantSignature && assistantSignature !== lastAssistantOutputSignatureRef.current) {
@@ -1249,11 +1242,9 @@ export function useLiveSession({
               pendingDeterministicIntentRef.current = deterministicIntent.type === 'unknown' ? null : deterministicIntent;
             }
 
-            const shouldSuppressAssistantOutput = pendingDeterministicIntentRef.current?.type && pendingDeterministicIntentRef.current.type !== 'unknown';
-
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
             const outputSignature = outputTranscript ? normalizeVoiceText(outputTranscript) : '';
-            if (!shouldSuppressAssistantOutput && outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
+            if (outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
               lastAssistantOutputSignatureRef.current = outputSignature;
               lastOutputTranscriptRef.current = outputTranscript;
               lastAssistantTextRef.current = outputTranscript;
@@ -1281,7 +1272,7 @@ export function useLiveSession({
             const audioParts = message.serverContent?.modelTurn?.parts?.filter(
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
-            if (!shouldSuppressAssistantOutput && audioParts && audioParts.length > 0 && audioContextRef.current) {
+            if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               currentTurnHadAssistantOutputRef.current = true;
               if (isSafariBrowser()) {
                 setPreferredAudioSession('playback');
@@ -1332,8 +1323,7 @@ export function useLiveSession({
                 ? await executeDeterministicIntent(pendingDeterministicIntentRef.current)
                 : false;
               pendingDeterministicIntentRef.current = null;
-              const handledLocally = handledDeterministically || tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
-              if (!handledLocally) {
+              if (!currentTurnHadAssistantOutputRef.current || !handledDeterministically) {
                 finalizeTurnIfReady();
               }
             }
