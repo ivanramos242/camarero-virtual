@@ -333,6 +333,7 @@ export function useLiveSession({
   const pendingOrderConfirmationSignatureRef = useRef('');
   const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
   const lastAssistantOutputSignatureRef = useRef('');
+  const pendingDeterministicIntentRef = useRef<LocalVoiceIntent | null>(null);
   const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
@@ -417,6 +418,7 @@ export function useLiveSession({
     currentTurnHadAssistantOutputRef.current = false;
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
+    pendingDeterministicIntentRef.current = null;
   }, []);
 
   const cancelLocalSpeech = useCallback(() => {
@@ -649,10 +651,10 @@ export function useLiveSession({
   const geminiTools = useMemo(
     () => [
       {
-        functionDeclarations: [getMenuTool, getCurrentOrderTool, setDinersTool, addToOrderTool, removeFromOrderTool, confirmOrderTool, endSessionTool],
+        functionDeclarations: [getMenuTool, getCurrentOrderTool, setDinersTool, endSessionTool],
       },
     ],
-    [addToOrderTool, confirmOrderTool, endSessionTool, getCurrentOrderTool, getMenuTool, removeFromOrderTool, setDinersTool],
+    [endSessionTool, getCurrentOrderTool, getMenuTool, setDinersTool],
   );
 
   const runTool = useCallback(
@@ -920,6 +922,79 @@ export function useLiveSession({
     [addLog, finalizeTurnIfReady, speakLocalAssistantMessage],
   );
 
+  const executeDeterministicIntent = useCallback(
+    async (intent: LocalVoiceIntent) => {
+      if (intent.type === 'unknown') {
+        return false;
+      }
+
+      stopPlayback();
+      cancelLocalSpeech();
+
+      if (intent.type === 'add') {
+        if (currentTurnAddedToOrderRef.current) {
+          return false;
+        }
+
+        currentTurnLocallyHandledRef.current = true;
+        currentTurnAddedToOrderRef.current = true;
+        onAddToCart(intent.item, intent.quantity);
+        resetPendingOrderConfirmation();
+        speakLocalAssistantMessage(`Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`);
+        return true;
+      }
+
+      if (intent.type === 'remove') {
+        if (currentTurnRemovedFromOrderRef.current) {
+          return false;
+        }
+
+        currentTurnLocallyHandledRef.current = true;
+        currentTurnRemovedFromOrderRef.current = true;
+        onRemoveFromOrder(intent.item.name);
+        resetPendingOrderConfirmation();
+        speakLocalAssistantMessage(`De acuerdo, quito una unidad de ${intent.item.name}.`);
+        return true;
+      }
+
+      if (currentTurnConfirmedOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      if (cartItemsRef.current.length === 0) {
+        resetPendingOrderConfirmation();
+        speakLocalAssistantMessage('No veo ningun plato en el pedido todavia.');
+        return true;
+      }
+
+      const currentCartSignature = buildCartSignature(cartItemsRef.current);
+      if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
+        pendingOrderConfirmationRef.current = true;
+        pendingOrderConfirmationSignatureRef.current = currentCartSignature;
+        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
+        return true;
+      }
+
+      const transcript = latestInputTranscriptRef.current.trim();
+      if (!isExplicitFinalConfirmation(transcript)) {
+        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
+        return true;
+      }
+
+      const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
+      resetPendingOrderConfirmation();
+      if (success) {
+        currentTurnConfirmedOrderRef.current = true;
+        speakLocalAssistantMessage('Perfecto, pedido confirmado y enviado a cocina.');
+      } else {
+        speakLocalAssistantMessage('No he podido confirmar el pedido. Intentalo de nuevo.');
+      }
+      return true;
+    },
+    [cancelLocalSpeech, onAddToCart, onConfirmOrder, onRemoveFromOrder, resetPendingOrderConfirmation, speakLocalAssistantMessage, stopPlayback],
+  );
+
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1148,7 +1223,7 @@ export function useLiveSession({
               ?.map((part) => ('text' in part ? part.text : undefined))
               .filter((part): part is string => Boolean(part));
 
-            if (textParts && textParts.length > 0) {
+            if (!pendingDeterministicIntentRef.current && textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
               const assistantSignature = normalizeVoiceText(assistantText);
               if (assistantText && assistantSignature && assistantSignature !== lastAssistantOutputSignatureRef.current) {
@@ -1165,11 +1240,20 @@ export function useLiveSession({
             if (inputTranscript) {
               latestInputTranscriptRef.current = inputTranscript;
               addLog('system', `Tu voz: ${inputTranscript}`);
+              const deterministicIntent = parseLocalVoiceIntent(
+                inputTranscript,
+                menuRef.current,
+                cartItemsRef.current,
+                pendingOrderConfirmationRef.current,
+              );
+              pendingDeterministicIntentRef.current = deterministicIntent.type === 'unknown' ? null : deterministicIntent;
             }
+
+            const shouldSuppressAssistantOutput = pendingDeterministicIntentRef.current?.type && pendingDeterministicIntentRef.current.type !== 'unknown';
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
             const outputSignature = outputTranscript ? normalizeVoiceText(outputTranscript) : '';
-            if (outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
+            if (!shouldSuppressAssistantOutput && outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
               lastAssistantOutputSignatureRef.current = outputSignature;
               lastOutputTranscriptRef.current = outputTranscript;
               lastAssistantTextRef.current = outputTranscript;
@@ -1197,7 +1281,7 @@ export function useLiveSession({
             const audioParts = message.serverContent?.modelTurn?.parts?.filter(
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
-            if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+            if (!shouldSuppressAssistantOutput && audioParts && audioParts.length > 0 && audioContextRef.current) {
               currentTurnHadAssistantOutputRef.current = true;
               if (isSafariBrowser()) {
                 setPreferredAudioSession('playback');
@@ -1244,7 +1328,11 @@ export function useLiveSession({
 
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
-              const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              const handledDeterministically = pendingDeterministicIntentRef.current
+                ? await executeDeterministicIntent(pendingDeterministicIntentRef.current)
+                : false;
+              pendingDeterministicIntentRef.current = null;
+              const handledLocally = handledDeterministically || tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
               if (!handledLocally) {
                 finalizeTurnIfReady();
               }
@@ -1307,6 +1395,7 @@ export function useLiveSession({
     branding.showDebugTools,
     createSessionToken,
     ensureAudioPipeline,
+    executeDeterministicIntent,
     finalizeTurnIfReady,
     geminiTools,
     runTool,
