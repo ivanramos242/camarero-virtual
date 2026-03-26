@@ -236,6 +236,13 @@ type LocalVoiceIntent =
   | { type: 'confirm' }
   | { type: 'unknown' };
 
+interface PendingAddFallback {
+  itemName?: string;
+  menuItemId?: string;
+  quantity: number;
+  notes?: string;
+}
+
 function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartItems: CartItem[], hasPendingConfirmation = false): LocalVoiceIntent {
   const normalized = normalizeVoiceText(transcript);
 
@@ -324,6 +331,8 @@ export function useLiveSession({
   const currentTurnHadAssistantOutputRef = useRef(false);
   const pendingOrderConfirmationRef = useRef(false);
   const pendingOrderConfirmationSignatureRef = useRef('');
+  const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
+  const lastAssistantOutputSignatureRef = useRef('');
   const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
@@ -406,6 +415,8 @@ export function useLiveSession({
     currentTurnRemovedFromOrderRef.current = false;
     currentTurnConfirmedOrderRef.current = false;
     currentTurnHadAssistantOutputRef.current = false;
+    pendingAddFallbackRef.current = null;
+    lastAssistantOutputSignatureRef.current = '';
   }, []);
 
   const cancelLocalSpeech = useCallback(() => {
@@ -668,6 +679,12 @@ export function useLiveSession({
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? args.notes : undefined;
         const item = findMenuItem(menuRef.current, args);
+        pendingAddFallbackRef.current = {
+          itemName: typeof args.itemName === 'string' ? args.itemName : undefined,
+          menuItemId: typeof args.menuItemId === 'string' ? args.menuItemId : undefined,
+          quantity,
+          notes,
+        };
 
         if (!item) {
           result = { success: false, error: `No he podido identificar el plato "${itemName}" en la carta actual.` };
@@ -676,6 +693,7 @@ export function useLiveSession({
           onAddToCart(item, quantity, notes);
           resetPendingOrderConfirmation();
           currentTurnAddedToOrderRef.current = true;
+          pendingAddFallbackRef.current = null;
           addLog('system', `Anadido ${quantity}x ${item.name}.`);
           result = {
             success: true,
@@ -902,6 +920,33 @@ export function useLiveSession({
     [addLog, finalizeTurnIfReady, speakLocalAssistantMessage],
   );
 
+  const tryHandlePendingAddFallback = useCallback(() => {
+    if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
+      return false;
+    }
+
+    const fallbackArgs = pendingAddFallbackRef.current;
+    const fallbackItem = findMenuItem(menuRef.current, {
+      menuItemId: fallbackArgs.menuItemId,
+      itemName: fallbackArgs.itemName,
+    });
+
+    if (!fallbackItem) {
+      return false;
+    }
+
+    currentTurnLocallyHandledRef.current = true;
+    currentTurnAddedToOrderRef.current = true;
+    pendingAddFallbackRef.current = null;
+    onAddToCart(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
+    resetPendingOrderConfirmation();
+    finalizeLocalIntent(
+      `Perfecto, anado ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`,
+      `Fallback desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`,
+    );
+    return true;
+  }, [finalizeLocalIntent, onAddToCart, resetPendingOrderConfirmation]);
+
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
     if (!transcript || currentTurnLocallyHandledRef.current) {
@@ -1105,7 +1150,9 @@ export function useLiveSession({
 
             if (textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
-              if (assistantText && assistantText !== lastAssistantTextRef.current) {
+              const assistantSignature = normalizeVoiceText(assistantText);
+              if (assistantText && assistantSignature && assistantSignature !== lastAssistantOutputSignatureRef.current) {
+                lastAssistantOutputSignatureRef.current = assistantSignature;
                 lastAssistantTextRef.current = assistantText;
                 lastOutputTranscriptRef.current = assistantText;
                 currentTurnHadAssistantOutputRef.current = true;
@@ -1121,7 +1168,9 @@ export function useLiveSession({
             }
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
-            if (outputTranscript && outputTranscript !== lastOutputTranscriptRef.current) {
+            const outputSignature = outputTranscript ? normalizeVoiceText(outputTranscript) : '';
+            if (outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
+              lastAssistantOutputSignatureRef.current = outputSignature;
               lastOutputTranscriptRef.current = outputTranscript;
               lastAssistantTextRef.current = outputTranscript;
               currentTurnHadAssistantOutputRef.current = true;
@@ -1195,7 +1244,7 @@ export function useLiveSession({
 
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
-              const handledLocally = await tryHandleLocalIntent();
+              const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
               if (!handledLocally) {
                 finalizeTurnIfReady();
               }
@@ -1267,6 +1316,7 @@ export function useLiveSession({
     setTurnStateSafe,
     stopPlayback,
     systemInstruction,
+    tryHandlePendingAddFallback,
   ]);
 
   const beginPressToTalk = useCallback(async () => {
