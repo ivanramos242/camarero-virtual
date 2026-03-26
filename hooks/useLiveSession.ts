@@ -297,6 +297,9 @@ export function useLiveSession({
   const currentTurnHadToolCallRef = useRef(false);
   const currentTurnLocallyHandledRef = useRef(false);
   const currentTurnAddedToOrderRef = useRef(false);
+  const currentTurnRemovedFromOrderRef = useRef(false);
+  const currentTurnConfirmedOrderRef = useRef(false);
+  const currentTurnHadAssistantOutputRef = useRef(false);
   const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
@@ -363,6 +366,9 @@ export function useLiveSession({
     currentTurnHadToolCallRef.current = false;
     currentTurnLocallyHandledRef.current = false;
     currentTurnAddedToOrderRef.current = false;
+    currentTurnRemovedFromOrderRef.current = false;
+    currentTurnConfirmedOrderRef.current = false;
+    currentTurnHadAssistantOutputRef.current = false;
   }, []);
 
   const cancelLocalSpeech = useCallback(() => {
@@ -657,6 +663,7 @@ export function useLiveSession({
           addLog('error', result.error);
         } else {
           onRemoveFromOrder(item.name);
+          currentTurnRemovedFromOrderRef.current = true;
           addLog('system', `Corregido el pedido de ${item.name}.`);
           const remainingCart = [...cartItemsRef.current];
           const targetIndex = remainingCart.findIndex((cartItem) => cartItem.menuItem.id === item.id);
@@ -682,6 +689,7 @@ export function useLiveSession({
         }
 
         const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
+        currentTurnConfirmedOrderRef.current = success;
         result = success
           ? {
               success: true,
@@ -826,9 +834,22 @@ export function useLiveSession({
     [addLog, cancelLocalSpeech, finalizeTurnIfReady, setPreferredAudioSession, setTurnStateSafe],
   );
 
+  const finalizeLocalIntent = useCallback(
+    (spokenConfirmation: string, silentLog: string) => {
+      if (currentTurnHadAssistantOutputRef.current) {
+        addLog('system', silentLog);
+        finalizeTurnIfReady();
+        return;
+      }
+
+      speakLocalAssistantMessage(spokenConfirmation);
+    },
+    [addLog, finalizeTurnIfReady, speakLocalAssistantMessage],
+  );
+
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
-    if (!transcript || currentTurnHadToolCallRef.current || currentTurnLocallyHandledRef.current) {
+    if (!transcript || currentTurnLocallyHandledRef.current) {
       return false;
     }
 
@@ -843,31 +864,36 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      stopPlayback();
       onAddToCart(intent.item, intent.quantity);
       currentTurnAddedToOrderRef.current = true;
-      const confirmation = `Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`;
-      addLog('system', `Fallback local: anadido ${intent.quantity}x ${intent.item.name}.`);
-      speakLocalAssistantMessage(confirmation);
+      finalizeLocalIntent(
+        `Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`,
+        `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`,
+      );
       return true;
     }
 
-    if (currentTurnHadToolCallRef.current || currentTurnLocallyHandledRef.current) {
-      return false;
-    }
-
-    currentTurnLocallyHandledRef.current = true;
-    stopPlayback();
-
     if (intent.type === 'remove') {
+      if (currentTurnRemovedFromOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
       onRemoveFromOrder(intent.item.name);
-      const confirmation = `De acuerdo, quito una unidad de ${intent.item.name}.`;
-      addLog('system', `Fallback local: quitado ${intent.item.name}.`);
-      speakLocalAssistantMessage(confirmation);
+      currentTurnRemovedFromOrderRef.current = true;
+      finalizeLocalIntent(
+        `De acuerdo, quito una unidad de ${intent.item.name}.`,
+        `Fallback local silencioso: quitado ${intent.item.name}.`,
+      );
       return true;
     }
 
     if (intent.type === 'confirm') {
+      if (currentTurnConfirmedOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
       if (cartItemsRef.current.length === 0) {
         speakLocalAssistantMessage('No veo ningun plato en el pedido todavia.');
         return true;
@@ -875,8 +901,11 @@ export function useLiveSession({
 
       const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
       if (success) {
-        addLog('system', 'Fallback local: pedido confirmado.');
-        speakLocalAssistantMessage('Perfecto, pedido confirmado y enviado a cocina.');
+        currentTurnConfirmedOrderRef.current = true;
+        finalizeLocalIntent(
+          'Perfecto, pedido confirmado y enviado a cocina.',
+          'Fallback local silencioso: pedido confirmado.',
+        );
       } else {
         speakLocalAssistantMessage('No he podido confirmar el pedido. Intentalo de nuevo.');
       }
@@ -884,7 +913,7 @@ export function useLiveSession({
     }
 
     return false;
-  }, [addLog, onAddToCart, onConfirmOrder, onRemoveFromOrder, speakLocalAssistantMessage, stopPlayback]);
+  }, [finalizeLocalIntent, onAddToCart, onConfirmOrder, onRemoveFromOrder, speakLocalAssistantMessage]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -1006,6 +1035,8 @@ export function useLiveSession({
               const assistantText = textParts.join(' ').trim();
               if (assistantText && assistantText !== lastAssistantTextRef.current) {
                 lastAssistantTextRef.current = assistantText;
+                lastOutputTranscriptRef.current = assistantText;
+                currentTurnHadAssistantOutputRef.current = true;
                 setLastAssistantMessage(assistantText);
                 addLog('assistant', assistantText);
               }
@@ -1020,6 +1051,8 @@ export function useLiveSession({
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
             if (outputTranscript && outputTranscript !== lastOutputTranscriptRef.current) {
               lastOutputTranscriptRef.current = outputTranscript;
+              lastAssistantTextRef.current = outputTranscript;
+              currentTurnHadAssistantOutputRef.current = true;
               setLastAssistantMessage(outputTranscript);
               addLog('assistant', outputTranscript);
             }
@@ -1044,6 +1077,7 @@ export function useLiveSession({
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+              currentTurnHadAssistantOutputRef.current = true;
               if (isSafariBrowser()) {
                 setPreferredAudioSession('playback');
               }
