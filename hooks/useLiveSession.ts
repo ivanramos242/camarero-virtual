@@ -752,9 +752,6 @@ export function useLiveSession({
   const speakLocalAssistantMessage = useCallback(
     (message: string) => {
       cancelLocalSpeech();
-      if (isMobileBrowser() && turnStateRef.current !== 'recording') {
-        teardownAudioCapture();
-      }
       setLastAssistantMessage(message);
       addLog('assistant', message);
       setTurnStateSafe('speaking');
@@ -788,7 +785,7 @@ export function useLiveSession({
         finalizeTurnIfReady();
       }, 900);
     },
-    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe, teardownAudioCapture],
+    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe],
   );
 
   const tryHandleLocalIntent = useCallback(async () => {
@@ -880,11 +877,18 @@ export function useLiveSession({
         pendingPressRef.current = false;
         shouldStreamAudioRef.current = false;
         geminiSessionRef.current?.sendRealtimeInput({ activityEnd: {} });
+        if (isMobileBrowser()) {
+          window.setTimeout(() => {
+            if (turnStateRef.current !== 'recording') {
+              teardownAudioCapture();
+            }
+          }, 120);
+        }
         setTurnStateSafe('processing');
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe]);
+  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe, teardownAudioCapture]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
@@ -992,10 +996,6 @@ export function useLiveSession({
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
-              if (isMobileBrowser() && turnStateRef.current !== 'recording' && mediaStreamRef.current) {
-                teardownAudioCapture();
-              }
-
               const audioContext = audioContextRef.current;
               if (audioContext.state === 'suspended') {
                 await audioContext.resume();
@@ -1108,7 +1108,6 @@ export function useLiveSession({
     setTurnStateSafe,
     stopPlayback,
     systemInstruction,
-    teardownAudioCapture,
   ]);
 
   const beginPressToTalk = useCallback(async () => {
@@ -1149,10 +1148,17 @@ export function useLiveSession({
     clearRecordingTimeout();
     shouldStreamAudioRef.current = false;
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
+    if (isMobileBrowser()) {
+      window.setTimeout(() => {
+        if (turnStateRef.current !== 'recording') {
+          teardownAudioCapture();
+        }
+      }, 120);
+    }
     setTurnStateSafe('processing');
     setVolumeLevel(0);
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, setTurnStateSafe]);
+  }, [addLog, clearRecordingTimeout, setTurnStateSafe, teardownAudioCapture]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 
