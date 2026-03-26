@@ -190,6 +190,14 @@ function parseVoiceQuantity(rawText: string) {
   return token ? quantityMap[token] : 1;
 }
 
+function isMobileBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+}
+
 type LocalVoiceIntent =
   | { type: 'add'; item: MenuItem; quantity: number }
   | { type: 'remove'; item: MenuItem }
@@ -744,6 +752,9 @@ export function useLiveSession({
   const speakLocalAssistantMessage = useCallback(
     (message: string) => {
       cancelLocalSpeech();
+      if (isMobileBrowser() && turnStateRef.current !== 'recording') {
+        teardownAudioCapture();
+      }
       setLastAssistantMessage(message);
       addLog('assistant', message);
       setTurnStateSafe('speaking');
@@ -777,7 +788,7 @@ export function useLiveSession({
         finalizeTurnIfReady();
       }, 900);
     },
-    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe],
+    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe, teardownAudioCapture],
   );
 
   const tryHandleLocalIntent = useCallback(async () => {
@@ -919,12 +930,8 @@ export function useLiveSession({
             },
             activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
-          ...(branding.showDebugTools
-            ? {
-                inputAudioTranscription: {},
-                outputAudioTranscription: {},
-              }
-            : {}),
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -985,6 +992,10 @@ export function useLiveSession({
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+              if (isMobileBrowser() && turnStateRef.current !== 'recording' && mediaStreamRef.current) {
+                teardownAudioCapture();
+              }
+
               const audioContext = audioContextRef.current;
               if (audioContext.state === 'suspended') {
                 await audioContext.resume();
@@ -1064,8 +1075,8 @@ export function useLiveSession({
           responseModalities: ['AUDIO'],
           automaticActivityDetectionDisabled: true,
           activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
-          hasInputAudioTranscription: Boolean(branding.showDebugTools),
-          hasOutputAudioTranscription: Boolean(branding.showDebugTools),
+          hasInputAudioTranscription: true,
+          hasOutputAudioTranscription: true,
           explicitVadSignal: false,
         })}`,
       );
@@ -1097,6 +1108,7 @@ export function useLiveSession({
     setTurnStateSafe,
     stopPlayback,
     systemInstruction,
+    teardownAudioCapture,
   ]);
 
   const beginPressToTalk = useCallback(async () => {
