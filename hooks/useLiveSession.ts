@@ -333,8 +333,6 @@ export function useLiveSession({
   const pendingOrderConfirmationSignatureRef = useRef('');
   const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
   const lastAssistantOutputSignatureRef = useRef('');
-  const pendingDeterministicIntentRef = useRef<LocalVoiceIntent | null>(null);
-  const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -418,15 +416,9 @@ export function useLiveSession({
     currentTurnHadAssistantOutputRef.current = false;
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
-    pendingDeterministicIntentRef.current = null;
   }, []);
 
-  const cancelLocalSpeech = useCallback(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    localSpeechUtteranceRef.current = null;
-  }, []);
+  const cancelLocalSpeech = useCallback(() => {}, []);
 
   const setPreferredAudioSession = useCallback((type: SupportedAudioSessionType) => {
     if (typeof navigator === 'undefined') {
@@ -651,10 +643,10 @@ export function useLiveSession({
   const geminiTools = useMemo(
     () => [
       {
-        functionDeclarations: [getMenuTool, getCurrentOrderTool, setDinersTool, endSessionTool],
+        functionDeclarations: [getMenuTool, getCurrentOrderTool, setDinersTool, addToOrderTool, removeFromOrderTool, confirmOrderTool, endSessionTool],
       },
     ],
-    [endSessionTool, getCurrentOrderTool, getMenuTool, setDinersTool],
+    [addToOrderTool, confirmOrderTool, endSessionTool, getCurrentOrderTool, getMenuTool, removeFromOrderTool, setDinersTool],
   );
 
   const runTool = useCallback(
@@ -867,127 +859,6 @@ export function useLiveSession({
     }
   }, [disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
-  const speakLocalAssistantMessage = useCallback(
-    (message: string) => {
-      cancelLocalSpeech();
-      if (isSafariBrowser()) {
-        setPreferredAudioSession('playback');
-      }
-      setLastAssistantMessage(message);
-      addLog('assistant', message);
-      setTurnStateSafe('speaking');
-
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') {
-        const utterance = new SpeechSynthesisUtterance(message);
-        const spanishVoice = window.speechSynthesis
-          .getVoices()
-          .find((voice) => voice.lang.toLowerCase().startsWith('es'));
-        if (spanishVoice) {
-          utterance.voice = spanishVoice;
-        }
-        utterance.lang = spanishVoice?.lang ?? 'es-ES';
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        utterance.volume = 1;
-        utterance.onend = () => {
-          localSpeechUtteranceRef.current = null;
-          finalizeTurnIfReady();
-        };
-        utterance.onerror = () => {
-          localSpeechUtteranceRef.current = null;
-          finalizeTurnIfReady();
-        };
-        localSpeechUtteranceRef.current = utterance;
-        window.speechSynthesis.speak(utterance);
-        return;
-      }
-
-      window.setTimeout(() => {
-        finalizeTurnIfReady();
-      }, 900);
-    },
-    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setPreferredAudioSession, setTurnStateSafe],
-  );
-
-  const finalizeLocalIntent = useCallback(
-    (spokenConfirmation: string, silentLog: string) => {
-      if (currentTurnHadAssistantOutputRef.current) {
-        addLog('system', silentLog);
-        finalizeTurnIfReady();
-        return;
-      }
-
-      speakLocalAssistantMessage(spokenConfirmation);
-    },
-    [addLog, finalizeTurnIfReady, speakLocalAssistantMessage],
-  );
-
-  const executeDeterministicIntent = useCallback(
-    async (intent: LocalVoiceIntent) => {
-      if (intent.type === 'unknown') {
-        return false;
-      }
-
-      if (intent.type === 'add') {
-        if (currentTurnAddedToOrderRef.current) {
-          return false;
-        }
-
-        currentTurnLocallyHandledRef.current = true;
-        currentTurnAddedToOrderRef.current = true;
-        onAddToCart(intent.item, intent.quantity);
-        resetPendingOrderConfirmation();
-        addLog('system', `Accion local: anadido ${intent.quantity}x ${intent.item.name}.`);
-        return true;
-      }
-
-      if (intent.type === 'remove') {
-        if (currentTurnRemovedFromOrderRef.current) {
-          return false;
-        }
-
-        currentTurnLocallyHandledRef.current = true;
-        currentTurnRemovedFromOrderRef.current = true;
-        onRemoveFromOrder(intent.item.name);
-        resetPendingOrderConfirmation();
-        addLog('system', `Accion local: quitado ${intent.item.name}.`);
-        return true;
-      }
-
-      if (currentTurnConfirmedOrderRef.current) {
-        return false;
-      }
-
-      currentTurnLocallyHandledRef.current = true;
-      if (cartItemsRef.current.length === 0) {
-        resetPendingOrderConfirmation();
-        addLog('error', 'Confirmacion ignorada: no hay platos en el pedido.');
-        return true;
-      }
-
-      const currentCartSignature = buildCartSignature(cartItemsRef.current);
-      if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
-        pendingOrderConfirmationRef.current = true;
-        pendingOrderConfirmationSignatureRef.current = currentCartSignature;
-        addLog('system', 'Confirmacion en dos pasos: resumen pendiente antes de enviar.');
-        return true;
-      }
-
-      const transcript = latestInputTranscriptRef.current.trim();
-      if (!isExplicitFinalConfirmation(transcript)) {
-        addLog('system', 'Confirmacion final pendiente: falta un si explicito del cliente.');
-        return true;
-      }
-
-      const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
-      resetPendingOrderConfirmation();
-      currentTurnConfirmedOrderRef.current = success;
-      addLog(success ? 'system' : 'error', success ? 'Accion local: pedido confirmado.' : 'Accion local: no se pudo confirmar el pedido.');
-      return true;
-    },
-    [addLog, onAddToCart, onConfirmOrder, onRemoveFromOrder, resetPendingOrderConfirmation],
-  );
-
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1008,12 +879,10 @@ export function useLiveSession({
     pendingAddFallbackRef.current = null;
     onAddToCart(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
-    finalizeLocalIntent(
-      `Perfecto, anado ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`,
-      `Fallback desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`,
-    );
+    addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
+    finalizeTurnIfReady();
     return true;
-  }, [finalizeLocalIntent, onAddToCart, resetPendingOrderConfirmation]);
+  }, [addLog, finalizeTurnIfReady, onAddToCart, resetPendingOrderConfirmation]);
 
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
@@ -1035,10 +904,8 @@ export function useLiveSession({
       onAddToCart(intent.item, intent.quantity);
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
-      finalizeLocalIntent(
-        `Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`,
-        `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`,
-      );
+      addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
+      finalizeTurnIfReady();
       return true;
     }
 
@@ -1051,54 +918,13 @@ export function useLiveSession({
       onRemoveFromOrder(intent.item.name);
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
-      finalizeLocalIntent(
-        `De acuerdo, quito una unidad de ${intent.item.name}.`,
-        `Fallback local silencioso: quitado ${intent.item.name}.`,
-      );
-      return true;
-    }
-
-    if (intent.type === 'confirm') {
-      if (currentTurnConfirmedOrderRef.current) {
-        return false;
-      }
-
-      currentTurnLocallyHandledRef.current = true;
-      if (cartItemsRef.current.length === 0) {
-        resetPendingOrderConfirmation();
-        speakLocalAssistantMessage('No veo ningun plato en el pedido todavia.');
-        return true;
-      }
-
-      const currentCartSignature = buildCartSignature(cartItemsRef.current);
-      if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
-        pendingOrderConfirmationRef.current = true;
-        pendingOrderConfirmationSignatureRef.current = currentCartSignature;
-        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
-        return true;
-      }
-
-      if (!isExplicitFinalConfirmation(transcript)) {
-        speakLocalAssistantMessage(buildOrderConfirmationPrompt(cartItemsRef.current));
-        return true;
-      }
-
-      const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
-      resetPendingOrderConfirmation();
-      if (success) {
-        currentTurnConfirmedOrderRef.current = true;
-        finalizeLocalIntent(
-          'Perfecto, pedido confirmado y enviado a cocina.',
-          'Fallback local silencioso: pedido confirmado.',
-        );
-      } else {
-        speakLocalAssistantMessage('No he podido confirmar el pedido. Intentalo de nuevo.');
-      }
+      addLog('system', `Fallback local silencioso: quitado ${intent.item.name}.`);
+      finalizeTurnIfReady();
       return true;
     }
 
     return false;
-  }, [finalizeLocalIntent, onAddToCart, onConfirmOrder, onRemoveFromOrder, resetPendingOrderConfirmation, speakLocalAssistantMessage]);
+  }, [addLog, finalizeTurnIfReady, onAddToCart, onRemoveFromOrder, resetPendingOrderConfirmation]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -1233,13 +1059,6 @@ export function useLiveSession({
             if (inputTranscript) {
               latestInputTranscriptRef.current = inputTranscript;
               addLog('system', `Tu voz: ${inputTranscript}`);
-              const deterministicIntent = parseLocalVoiceIntent(
-                inputTranscript,
-                menuRef.current,
-                cartItemsRef.current,
-                pendingOrderConfirmationRef.current,
-              );
-              pendingDeterministicIntentRef.current = deterministicIntent.type === 'unknown' ? null : deterministicIntent;
             }
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
@@ -1319,11 +1138,8 @@ export function useLiveSession({
 
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
-              const handledDeterministically = pendingDeterministicIntentRef.current
-                ? await executeDeterministicIntent(pendingDeterministicIntentRef.current)
-                : false;
-              pendingDeterministicIntentRef.current = null;
-              if (!currentTurnHadAssistantOutputRef.current || !handledDeterministically) {
+              const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              if (!handledLocally) {
                 finalizeTurnIfReady();
               }
             }
@@ -1385,7 +1201,6 @@ export function useLiveSession({
     branding.showDebugTools,
     createSessionToken,
     ensureAudioPipeline,
-    executeDeterministicIntent,
     finalizeTurnIfReady,
     geminiTools,
     runTool,
@@ -1395,7 +1210,6 @@ export function useLiveSession({
     setTurnStateSafe,
     stopPlayback,
     systemInstruction,
-    tryHandlePendingAddFallback,
   ]);
 
   const beginPressToTalk = useCallback(async () => {
