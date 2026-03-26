@@ -276,6 +276,7 @@ export function useLiveSession({
   const latestInputTranscriptRef = useRef('');
   const currentTurnHadToolCallRef = useRef(false);
   const currentTurnLocallyHandledRef = useRef(false);
+  const currentTurnAddedToOrderRef = useRef(false);
   const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const cartItemsRef = useRef(cartItems);
@@ -341,6 +342,7 @@ export function useLiveSession({
     latestInputTranscriptRef.current = '';
     currentTurnHadToolCallRef.current = false;
     currentTurnLocallyHandledRef.current = false;
+    currentTurnAddedToOrderRef.current = false;
   }, []);
 
   const cancelLocalSpeech = useCallback(() => {
@@ -584,6 +586,7 @@ export function useLiveSession({
           addLog('error', result.error);
         } else {
           onAddToCart(item, quantity, notes);
+          currentTurnAddedToOrderRef.current = true;
           addLog('system', `Anadido ${quantity}x ${item.name}.`);
           result = {
             success: true,
@@ -788,16 +791,27 @@ export function useLiveSession({
       return false;
     }
 
-    currentTurnLocallyHandledRef.current = true;
-    stopPlayback();
-
     if (intent.type === 'add') {
+      if (currentTurnAddedToOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      stopPlayback();
       onAddToCart(intent.item, intent.quantity);
+      currentTurnAddedToOrderRef.current = true;
       const confirmation = `Perfecto, anado ${intent.quantity} ${intent.item.name} al pedido.`;
       addLog('system', `Fallback local: anadido ${intent.quantity}x ${intent.item.name}.`);
       speakLocalAssistantMessage(confirmation);
       return true;
     }
+
+    if (currentTurnHadToolCallRef.current || currentTurnLocallyHandledRef.current) {
+      return false;
+    }
+
+    currentTurnLocallyHandledRef.current = true;
+    stopPlayback();
 
     if (intent.type === 'remove') {
       onRemoveFromOrder(intent.item.name);
