@@ -40,6 +40,7 @@ const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const PLAYBACK_GAIN = 2.15;
 const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
+const SAFARI_CAPTURE_RELEASE_MS = 180;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -197,6 +198,17 @@ function isMobileBrowser() {
 
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 }
+
+function isSafariBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent;
+  return /safari/i.test(userAgent) && !/chrome|chromium|crios|fxios|edgios|opr\//i.test(userAgent);
+}
+
+type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
 
 type LocalVoiceIntent =
   | { type: 'add'; item: MenuItem; quantity: number }
@@ -360,6 +372,28 @@ export function useLiveSession({
     localSpeechUtteranceRef.current = null;
   }, []);
 
+  const setPreferredAudioSession = useCallback((type: SupportedAudioSessionType) => {
+    if (typeof navigator === 'undefined') {
+      return;
+    }
+
+    const navigatorWithAudioSession = navigator as Navigator & {
+      audioSession?: {
+        type?: SupportedAudioSessionType;
+      };
+    };
+
+    if (!navigatorWithAudioSession.audioSession) {
+      return;
+    }
+
+    try {
+      navigatorWithAudioSession.audioSession.type = type;
+    } catch {
+      // Safari puede ignorar o bloquear este cambio en algunos estados; es best effort.
+    }
+  }, []);
+
   const teardownAudioCapture = useCallback(() => {
     clearCaptureTeardownTimeout();
 
@@ -431,8 +465,9 @@ export function useLiveSession({
       setVolumeLevel(0);
       setTurnStateSafe(nextStatus === 'error' ? 'error' : 'idle');
       setStatusSafe(nextStatus);
+      setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -752,6 +787,9 @@ export function useLiveSession({
   const speakLocalAssistantMessage = useCallback(
     (message: string) => {
       cancelLocalSpeech();
+      if (isSafariBrowser()) {
+        setPreferredAudioSession('playback');
+      }
       setLastAssistantMessage(message);
       addLog('assistant', message);
       setTurnStateSafe('speaking');
@@ -785,7 +823,7 @@ export function useLiveSession({
         finalizeTurnIfReady();
       }, 900);
     },
-    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setTurnStateSafe],
+    [addLog, cancelLocalSpeech, finalizeTurnIfReady, setPreferredAudioSession, setTurnStateSafe],
   );
 
   const tryHandleLocalIntent = useCallback(async () => {
@@ -860,6 +898,10 @@ export function useLiveSession({
       return;
     }
 
+    if (isSafariBrowser()) {
+      setPreferredAudioSession('play-and-record');
+    }
+
     clearRecordingTimeout();
     pendingPressRef.current = true;
     cancelCurrentResponse();
@@ -877,18 +919,21 @@ export function useLiveSession({
         pendingPressRef.current = false;
         shouldStreamAudioRef.current = false;
         geminiSessionRef.current?.sendRealtimeInput({ activityEnd: {} });
+        if (isSafariBrowser()) {
+          setPreferredAudioSession('playback');
+        }
         if (isMobileBrowser()) {
           window.setTimeout(() => {
             if (turnStateRef.current !== 'recording') {
               teardownAudioCapture();
             }
-          }, 120);
+          }, SAFARI_CAPTURE_RELEASE_MS);
         }
         setTurnStateSafe('processing');
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
@@ -948,6 +993,9 @@ export function useLiveSession({
           onopen: () => {
             addLog('system', `Sesion de voz abierta con ${branding.assistantName} por Gemini.`);
             setStatusSafe('connected');
+            if (isSafariBrowser()) {
+              setPreferredAudioSession('playback');
+            }
           },
           onmessage: async (message: LiveServerMessage) => {
             const textParts = message.serverContent?.modelTurn?.parts
@@ -996,6 +1044,10 @@ export function useLiveSession({
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+              if (isSafariBrowser()) {
+                setPreferredAudioSession('playback');
+              }
+
               const audioContext = audioContextRef.current;
               if (audioContext.state === 'suspended') {
                 await audioContext.resume();
@@ -1104,6 +1156,7 @@ export function useLiveSession({
     geminiTools,
     runTool,
     runVoiceDiagnostics,
+    setPreferredAudioSession,
     setStatusSafe,
     setTurnStateSafe,
     stopPlayback,
@@ -1122,6 +1175,9 @@ export function useLiveSession({
     clearCaptureTeardownTimeout();
 
     try {
+      if (isSafariBrowser()) {
+        setPreferredAudioSession('play-and-record');
+      }
       await ensureGeminiSession();
       await ensureAudioPipeline();
       if (!pendingPressRef.current) {
@@ -1136,7 +1192,7 @@ export function useLiveSession({
       setStatusSafe('error');
       setTurnStateSafe('error');
     }
-  }, [addLog, branding.voiceEnabled, clearCaptureTeardownTimeout, ensureGeminiSession, runVoiceDiagnostics, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
+  }, [addLog, branding.voiceEnabled, clearCaptureTeardownTimeout, ensureGeminiSession, runVoiceDiagnostics, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
 
   const endPressToTalk = useCallback(() => {
     pendingPressRef.current = false;
@@ -1148,17 +1204,20 @@ export function useLiveSession({
     clearRecordingTimeout();
     shouldStreamAudioRef.current = false;
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
+    if (isSafariBrowser()) {
+      setPreferredAudioSession('playback');
+    }
     if (isMobileBrowser()) {
       window.setTimeout(() => {
         if (turnStateRef.current !== 'recording') {
           teardownAudioCapture();
         }
-      }, 120);
+      }, SAFARI_CAPTURE_RELEASE_MS);
     }
     setTurnStateSafe('processing');
     setVolumeLevel(0);
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, clearRecordingTimeout, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 
