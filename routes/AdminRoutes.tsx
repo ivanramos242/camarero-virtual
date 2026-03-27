@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ClipboardList, Loader2 } from 'lucide-react';
+import { ArrowLeft, ClipboardList, Loader2 } from 'lucide-react';
 
 import AdminDashboard from '../components/AdminDashboard';
 import { useMenuFeed } from '../hooks/useMenuFeed';
@@ -71,6 +71,17 @@ export function AdminLoginPage({ authenticated, branding, errorMessage, isLoadin
   return (
     <main className="page-container flex min-h-screen items-center justify-center py-10">
       <section className="panel w-full max-w-md overflow-hidden">
+        <div className="border-b border-stone-200 px-6 py-4">
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition hover:bg-stone-50"
+          >
+            <ArrowLeft size={16} />
+            Volver al inicio
+          </button>
+        </div>
+
         <div className="border-b border-stone-200 px-6 py-5">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-stone-900 text-white">
