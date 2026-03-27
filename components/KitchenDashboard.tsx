@@ -326,7 +326,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
 
             {!isLoading && visibleBoardOrderCount > 0 ? (
               <div className="overflow-x-auto pb-3">
-                <div className="flex min-h-[calc(100vh-290px)] snap-x snap-mandatory items-stretch gap-4 pr-2">
+                <div className="flex min-h-[calc(100vh-290px)] snap-x snap-mandatory items-stretch gap-5 pr-2">
                   {activeColumns.map((column) => {
                     const style = statusStyles[column.status];
                     const ColumnIcon = style.icon;
@@ -334,7 +334,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                     return (
                       <section
                         key={column.status}
-                        className={`flex min-h-full w-[min(90vw,440px)] min-w-[320px] snap-start flex-col rounded-xl border ${style.column}`}
+                        className={`flex min-h-full w-[min(92vw,560px)] min-w-[360px] snap-start flex-col rounded-xl border ${style.column}`}
                       >
                         <div className="flex items-center justify-between gap-3 border-b border-black/5 px-4 py-4">
                           <div className="flex items-center gap-3">
