@@ -392,6 +392,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                     </div>
 
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-600">
+                                      <span className="font-medium text-stone-800">{order.clientName || 'Sin nombre'}</span>
                                       <span className="inline-flex items-center gap-1.5">
                                         <Users size={15} />
                                         {order.diners} comensales
@@ -410,18 +411,10 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                   ) : null}
                                 </div>
 
-                                <div className="grid gap-px border-y border-stone-200 bg-stone-200 sm:grid-cols-2 xl:grid-cols-4">
-                                  <div className="bg-white px-4 py-2.5 text-sm">
-                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Cliente</span>
-                                    <span className="ml-2 font-medium text-stone-900">{order.clientName || 'Sin nombre'}</span>
-                                  </div>
+                                <div className="grid gap-px border-y border-stone-200 bg-stone-200 sm:grid-cols-2 xl:grid-cols-2">
                                   <div className="bg-white px-4 py-2.5 text-sm">
                                     <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Entrada</span>
                                     <span className="ml-2 font-medium text-stone-900">{formatDateTime(order.createdAt)}</span>
-                                  </div>
-                                  <div className="bg-white px-4 py-2.5 text-sm">
-                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Canal</span>
-                                    <span className="ml-2 font-medium text-stone-900">{order.source === 'voice' ? 'Voz' : 'Manual'}</span>
                                   </div>
                                   <div className="bg-white px-4 py-2.5 text-sm">
                                     <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Importe</span>
