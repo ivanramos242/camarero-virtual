@@ -89,3 +89,74 @@ Para contenedor/EasyPanel:
 - Las imagenes subidas desde admin se guardan en `data/uploads/` y se sirven por `/uploads/*`.
 - Los QRs se generan con el dominio actual del navegador en admin; si cambia el dominio, basta con reimprimirlos.
 - La voz ya no expone la `GEMINI_API_KEY` en el bundle del navegador.
+
+## Funcionamiento actual de Ramiro
+
+Estado actual recomendado: mantener esta arquitectura salvo que haya un problema muy concreto y medible.
+
+### Flujo general
+
+- El cliente usa push-to-talk: mantiene pulsado, habla y al soltar se envia el turno.
+- Ramiro responde por audio con Gemini Live.
+- El pedido se actualiza dentro de la propia app.
+- La confirmacion final del pedido es obligatoria en dos pasos.
+
+### Regla principal
+
+- Ramiro lleva la conversacion y usa tools para `anadir`, `quitar` y `confirmar`.
+- La app mantiene una red de seguridad local silenciosa para rescatar acciones si Gemini ha dicho que algo se hizo pero el carrito no quedo actualizado.
+- No se usa voz local de fallback. La unica voz que debe oirse es la de Ramiro.
+
+### Como se anaden y corrigen platos
+
+- La carta completa se inyecta en el contexto de Gemini con nombres, IDs, categorias, ingredientes, alergenos y precio.
+- Ramiro intenta usar `menuItemId` exacto cuando puede.
+- Si el modelo no acierta el nombre exacto, la app hace matching local tolerante:
+  - normaliza acentos y texto
+  - elimina palabras vacias tipicas de voz
+  - compara por nombre, categoria e ingredientes
+- Si Gemini intenta una tool pero el carrito no cambia, la capa local puede rescatar la accion en silencio.
+
+### Confirmacion del pedido
+
+- `confirmOrder` no debe enviar a cocina en el primer intento.
+- Primero se marca una confirmacion pendiente y Ramiro debe resumir el pedido.
+- Solo cuando el cliente confirma explicitamente despues de ese resumen se envia a cocina.
+- Si el carrito cambia, la confirmacion pendiente se invalida y hay que resumir otra vez.
+
+### Anti-duplicados
+
+- La app deduplica texto del modelo, transcripcion de salida y chunks de audio repetidos.
+- Si Ramiro ya ha respondido en un turno, los rescates locales no vuelven a hablar por encima.
+
+### Safari e iPhone
+
+- Safari usa una capa especifica de `audioSession`:
+  - al grabar: `play-and-record`
+  - al responder: `playback`
+- Al soltar el boton se libera la captura del micro con un pequeño retraso para ayudar a que el audio salga por el altavoz principal y no por el auricular pequeno.
+- Este ajuste se mantiene porque ahora mismo da buen resultado en iPhone/Safari.
+
+### Estado que conviene mantener
+
+- Mantener tools de Gemini para pedido.
+- Mantener el rescate local silencioso solo como red de seguridad.
+- No volver a meter una segunda voz del navegador.
+- No volver a meter una capa determinista agresiva por encima de Ramiro salvo que haya logs concretos que lo justifiquen.
+
+### Si vuelve a fallar
+
+Antes de tocar arquitectura otra vez, revisar por turno:
+
+- transcript del cliente
+- tool calls recibidas
+- accion final aplicada al carrito
+- mensaje de Ramiro
+- si la confirmacion estaba pendiente o no
+
+Si se hace una mejora futura, debe ser incremental y medible. La base actual ya esta pensada para equilibrio entre:
+
+- buena conversacion
+- acciones fiables
+- una sola voz
+- compatibilidad movil
