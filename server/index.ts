@@ -48,6 +48,10 @@ import { createTable, deleteTable, getTableQr, getTablesQrBatch, listTables, toT
 const app = express();
 const kitchenSessions = new Map<string, number>();
 const adminSessions = new Map<string, number>();
+const kitchenAnnouncementCache = new Map<string, { payload: { audioBase64: string; mimeType: string; sampleRate: number }; expiresAt: number }>();
+const kitchenAnnouncementInFlight = new Map<string, Promise<{ audioBase64: string; mimeType: string; sampleRate: number }>>();
+let kitchenAnnouncementCooldownUntil = 0;
+let kitchenAnnouncementCooldownMessage: string | null = null;
 
 const orderStatusValues = ['pending', 'cooking', 'ready', 'served'] as const satisfies readonly OrderStatus[];
 const allowedUploadMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -235,32 +239,34 @@ const buildGeminiSessionToken = async (): Promise<SessionTokenResponse> => {
   const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
   const newSessionExpiresAt = new Date(Date.now() + 1000 * 60 * 5).toISOString();
 
-  const ai = new GoogleGenAI({
-    apiKey: serverConfig.geminiApiKey,
-    httpOptions: {
-      apiVersion: 'v1alpha',
-    },
-  });
+  const token = await withGeminiApiKeyFallback(async (apiKey) => {
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        apiVersion: 'v1alpha',
+      },
+    });
 
-  const token = await ai.authTokens.create({
-    config: {
-      uses: 3,
-      expireTime: expiresAt,
-      newSessionExpireTime: newSessionExpiresAt,
-      liveConnectConstraints: {
-        model: serverConfig.geminiLiveModel,
-        config: {
-          responseModalities: [Modality.AUDIO],
-          realtimeInputConfig: {
-            automaticActivityDetection: {
-              disabled: true,
+    return ai.authTokens.create({
+      config: {
+        uses: 3,
+        expireTime: expiresAt,
+        newSessionExpireTime: newSessionExpiresAt,
+        liveConnectConstraints: {
+          model: serverConfig.geminiLiveModel,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                disabled: true,
+              },
+              activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             },
-            activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
           },
         },
-        },
-      lockAdditionalFields: [],
-    },
+        lockAdditionalFields: [],
+      },
+    });
   });
 
   return {
@@ -285,50 +291,151 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error && error.message.trim() ? error.message : 'No se pudo generar la locucion de cocina.';
 }
 
-async function synthesizeKitchenAnnouncement(text: string) {
-  if (!serverConfig.geminiApiKey) {
+function parseRetryDelayMs(rawMessage: string) {
+  const secondMatch = rawMessage.match(/retry in\s+(\d+(?:\.\d+)?)s/i);
+  if (secondMatch) {
+    return Math.ceil(Number(secondMatch[1]) * 1000);
+  }
+
+  const retryInfoMatch = rawMessage.match(/"retryDelay":"(\d+)s"/i);
+  if (retryInfoMatch) {
+    return Number(retryInfoMatch[1]) * 1000;
+  }
+
+  return 30_000;
+}
+
+function isGeminiQuotaError(error: unknown) {
+  const message = getErrorMessage(error);
+  return message.includes('"code":429') || message.includes('RESOURCE_EXHAUSTED') || message.toLowerCase().includes('quota exceeded');
+}
+
+async function withGeminiApiKeyFallback<T>(runner: (apiKey: string, index: number) => Promise<T>) {
+  if (serverConfig.geminiApiKeys.length === 0) {
     throw new Error('La voz de Ramiro no esta disponible en el servidor.');
   }
 
-  const ai = new GoogleGenAI({
-    apiKey: serverConfig.geminiApiKey,
-    httpOptions: {
-      apiVersion: 'v1beta',
-    },
-  });
+  let lastError: unknown;
 
-  const response = await ai.models.generateContent({
-    model: serverConfig.geminiKitchenTtsModel,
-    contents: text,
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: 'Puck',
-          },
-        },
-      },
-    },
-  });
+  for (const [index, apiKey] of serverConfig.geminiApiKeys.entries()) {
+    try {
+      return await runner(apiKey, index);
+    } catch (error) {
+      lastError = error;
 
-  const audioPart = response.candidates?.[0]?.content?.parts?.find(
-    (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
-  );
+      if (isGeminiQuotaError(error) && index < serverConfig.geminiApiKeys.length - 1) {
+        console.warn(`[gemini] Cuota agotada en la clave ${index + 1}. Se intentara la clave ${index + 2}.`);
+        continue;
+      }
 
-  if (!audioPart?.inlineData?.data) {
-    throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
+      throw error;
+    }
   }
 
-  return {
-    audioBase64: audioPart.inlineData.data,
-    mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
-    sampleRate: 24_000,
-  };
+  throw lastError instanceof Error ? lastError : new Error('No se pudo completar la peticion a Gemini.');
+}
+
+function toKitchenVoiceError(error: unknown) {
+  const message = getErrorMessage(error);
+
+  if (isGeminiQuotaError(error)) {
+    const retryDelayMs = parseRetryDelayMs(message);
+    kitchenAnnouncementCooldownUntil = Date.now() + retryDelayMs;
+    kitchenAnnouncementCooldownMessage = `Ramiro ha agotado temporalmente la cuota de voz de Gemini. Reintenta en ${Math.max(
+      1,
+      Math.ceil(retryDelayMs / 1000),
+    )} s.`;
+    return new Error(kitchenAnnouncementCooldownMessage);
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
+async function synthesizeKitchenAnnouncement(text: string) {
+  if (serverConfig.geminiApiKeys.length === 0) {
+    throw new Error('La voz de Ramiro no esta disponible en el servidor.');
+  }
+
+  if (Date.now() < kitchenAnnouncementCooldownUntil && kitchenAnnouncementCooldownMessage) {
+    throw new Error(kitchenAnnouncementCooldownMessage);
+  }
+
+  const cacheKey = crypto.createHash('sha256').update(`${serverConfig.geminiKitchenTtsModel}:Puck:${text}`).digest('hex');
+  const cached = kitchenAnnouncementCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.payload;
+  }
+
+  if (cached) {
+    kitchenAnnouncementCache.delete(cacheKey);
+  }
+
+  const inFlight = kitchenAnnouncementInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const requestPromise = (async () => {
+    const response = await withGeminiApiKeyFallback(async (apiKey) => {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          apiVersion: 'v1beta',
+        },
+      });
+
+      return ai.models.generateContent({
+        model: serverConfig.geminiKitchenTtsModel,
+        contents: text,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: 'Puck',
+              },
+            },
+          },
+        },
+      });
+    });
+
+    const audioPart = response.candidates?.[0]?.content?.parts?.find(
+      (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
+    );
+
+    if (!audioPart?.inlineData?.data) {
+      throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
+    }
+
+    const payload = {
+      audioBase64: audioPart.inlineData.data,
+      mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
+      sampleRate: 24_000,
+    };
+
+    kitchenAnnouncementCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + 1000 * 60 * 60 * 6,
+    });
+    kitchenAnnouncementCooldownUntil = 0;
+    kitchenAnnouncementCooldownMessage = null;
+
+    return payload;
+  })()
+    .catch((error) => {
+      throw toKitchenVoiceError(error);
+    })
+    .finally(() => {
+      kitchenAnnouncementInFlight.delete(cacheKey);
+    });
+
+  kitchenAnnouncementInFlight.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 const runGeminiLiveDiagnostics = async () => {
-  if (!serverConfig.geminiApiKey) {
+  if (serverConfig.geminiApiKeys.length === 0) {
     return {
       provider: publicBranding.voiceProvider,
       geminiConfigured: false,
@@ -369,81 +476,83 @@ const runGeminiLiveDiagnostics = async () => {
   };
 
   try {
-    const ai = new GoogleGenAI({
-      apiKey: serverConfig.geminiApiKey,
-      httpOptions: {
-        apiVersion: 'v1alpha',
-      },
-    });
+    liveCheck = await withGeminiApiKeyFallback(async (apiKey) => {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          apiVersion: 'v1alpha',
+        },
+      });
 
-    liveCheck = await new Promise<{ ok: boolean; message: string }>((resolve) => {
-      let settled = false;
-      let timeoutId: NodeJS.Timeout | null = null;
+      return new Promise<{ ok: boolean; message: string }>((resolve) => {
+        let settled = false;
+        let timeoutId: NodeJS.Timeout | null = null;
 
-      const finish = (payload: { ok: boolean; message: string }) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        resolve(payload);
-      };
-
-      timeoutId = setTimeout(() => {
-        finish({
-          ok: false,
-          message: 'Timeout al abrir la sesion Live desde servidor.',
-        });
-      }, 8_000);
-
-      void ai.live
-        .connect({
-          model: serverConfig.geminiLiveModel,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            realtimeInputConfig: {
-              automaticActivityDetection: {
-                disabled: true,
-              },
-              activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-            },
-          },
-          callbacks: {
-            onopen: () => {
-              finish({
-                ok: true,
-                message: 'El servidor ha abierto una sesion Gemini Live correctamente.',
-              });
-            },
-            onclose: (event) => {
-              finish({
-                ok: false,
-                message: `Gemini Live ha cerrado la sesion de prueba. Codigo ${event.code}${event.reason ? `, motivo: ${event.reason}` : ''}.`,
-              });
-            },
-            onerror: (error) => {
-              finish({
-                ok: false,
-                message: error.message || 'Gemini Live ha fallado durante la prueba de conexion.',
-              });
-            },
-            onmessage: () => undefined,
-          },
-        })
-        .then((session) => {
-          if (!settled) {
-            session.close();
+        const finish = (payload: { ok: boolean; message: string }) => {
+          if (settled) {
+            return;
           }
-        })
-        .catch((error) => {
+
+          settled = true;
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          resolve(payload);
+        };
+
+        timeoutId = setTimeout(() => {
           finish({
             ok: false,
-            message: error instanceof Error ? error.message : 'No se ha podido abrir la sesion Live desde servidor.',
+            message: 'Timeout al abrir la sesion Live desde servidor.',
           });
-        });
+        }, 8_000);
+
+        void ai.live
+          .connect({
+            model: serverConfig.geminiLiveModel,
+            config: {
+              responseModalities: [Modality.AUDIO],
+              realtimeInputConfig: {
+                automaticActivityDetection: {
+                  disabled: true,
+                },
+                activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+              },
+            },
+            callbacks: {
+              onopen: () => {
+                finish({
+                  ok: true,
+                  message: 'El servidor ha abierto una sesion Gemini Live correctamente.',
+                });
+              },
+              onclose: (event) => {
+                finish({
+                  ok: false,
+                  message: `Gemini Live ha cerrado la sesion de prueba. Codigo ${event.code}${event.reason ? `, motivo: ${event.reason}` : ''}.`,
+                });
+              },
+              onerror: (error) => {
+                finish({
+                  ok: false,
+                  message: error.message || 'Gemini Live ha fallado durante la prueba de conexion.',
+                });
+              },
+              onmessage: () => undefined,
+            },
+          })
+          .then((session) => {
+            if (!settled) {
+              session.close();
+            }
+          })
+          .catch((error) => {
+            finish({
+              ok: false,
+              message: error instanceof Error ? error.message : 'No se ha podido abrir la sesion Live desde servidor.',
+            });
+          });
+      });
     });
   } catch (error) {
     liveCheck = {
@@ -491,7 +600,7 @@ app.get('/api/config', async (_request, response) => {
 
 app.get('/api/debug/voice', async (_request, response) => {
   try {
-    if (!serverConfig.geminiApiKey) {
+    if (serverConfig.geminiApiKeys.length === 0) {
       response.json({
         provider: publicBranding.voiceProvider,
         geminiConfigured: false,
@@ -513,7 +622,7 @@ app.get('/api/debug/voice', async (_request, response) => {
   } catch (error) {
     response.status(500).json({
       provider: publicBranding.voiceProvider,
-      geminiConfigured: Boolean(serverConfig.geminiApiKey),
+      geminiConfigured: serverConfig.geminiApiKeys.length > 0,
       openAiConfigured: Boolean(serverConfig.openAiApiKey),
       configuredModel: serverConfig.geminiLiveModel,
       tokenCheck: {
@@ -956,7 +1065,7 @@ app.post('/api/admin/menu/reorder', requireAdminAuth, async (request, response) 
 
 app.post('/api/session/token', async (_request, response) => {
   try {
-    if (serverConfig.geminiApiKey) {
+    if (serverConfig.geminiApiKeys.length > 0) {
       try {
         const payload = await buildGeminiSessionToken();
         response.json(payload);

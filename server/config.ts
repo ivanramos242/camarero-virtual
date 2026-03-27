@@ -71,6 +71,15 @@ const resolveGeminiLiveModel = (rawValue?: string) => {
   return deprecatedGeminiLiveModelMap[trimmedValue] ?? trimmedValue;
 };
 
+const collectGeminiApiKeys = () =>
+  [
+    normalizeApiKey(process.env.GEMINI_API_KEY),
+    normalizeApiKey(process.env.GEMINI_API_KEY_2),
+    normalizeApiKey(process.env.GEMINI_API_KEY_3),
+  ].filter(Boolean);
+
+const geminiApiKeys = collectGeminiApiKeys();
+
 export const serverConfig = {
   isProduction: process.env.NODE_ENV === 'production',
   host: '0.0.0.0',
@@ -85,7 +94,8 @@ export const serverConfig = {
   dataFilePath: path.join(process.cwd(), 'data', 'store.json'),
   uploadsDirPath: path.join(process.cwd(), 'data', 'uploads'),
   uploadMaxFileSizeBytes: 5 * 1024 * 1024,
-  geminiApiKey: normalizeApiKey(process.env.GEMINI_API_KEY),
+  geminiApiKey: geminiApiKeys[0] || '',
+  geminiApiKeys,
   geminiLiveModel: resolveGeminiLiveModel(process.env.GEMINI_LIVE_MODEL),
   geminiKitchenTtsModel: process.env.GEMINI_KITCHEN_TTS_MODEL?.trim() || DEFAULT_GEMINI_KITCHEN_TTS_MODEL,
   openAiApiKey: normalizeApiKey(process.env.OPENAI_API_KEY),
@@ -119,7 +129,7 @@ export const publicBranding: AppBranding = {
 };
 
 export const serverSecretsState = {
-  hasGeminiApiKey: Boolean(serverConfig.geminiApiKey),
+  hasGeminiApiKey: serverConfig.geminiApiKeys.length > 0,
   hasOpenAiApiKey: Boolean(serverConfig.openAiApiKey),
 };
 
