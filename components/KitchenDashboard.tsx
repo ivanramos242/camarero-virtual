@@ -305,10 +305,9 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 border-b border-stone-300 bg-white px-4 py-4 text-sm sm:px-6">
-            <span className="text-stone-500">Tablero por estado con scroll horizontal entre columnas.</span>
-            {errorMessage ? <span className="text-red-700">{errorMessage}</span> : null}
-          </div>
+          {errorMessage ? (
+            <div className="border-b border-stone-300 bg-white px-4 py-3 text-sm text-red-700 sm:px-6">{errorMessage}</div>
+          ) : null}
 
           <div className="p-4 sm:p-6">
             {isLoading ? (
