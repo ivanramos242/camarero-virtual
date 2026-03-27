@@ -218,6 +218,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
 }) => {
   const [isServedModalOpen, setIsServedModalOpen] = useState(false);
   const [announcementsEnabled, setAnnouncementsEnabled] = useState(true);
+  const [announcementError, setAnnouncementError] = useState<string | null>(null);
   const seenOrderIdsRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -267,6 +268,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
       const run = async () => {
         await playBeep();
         const { audioBase64, mimeType, sampleRate } = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
+        setAnnouncementError(null);
 
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 
@@ -321,11 +323,19 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
 
       if (interrupt) {
         announcementQueueRef.current = Promise.resolve();
-        await run();
+        try {
+          await run();
+        } catch (error) {
+          setAnnouncementError(error instanceof Error ? error.message : 'Ramiro no ha podido leer este pedido.');
+        }
         return;
       }
 
-      announcementQueueRef.current = announcementQueueRef.current.then(run).catch(() => undefined);
+      announcementQueueRef.current = announcementQueueRef.current
+        .then(run)
+        .catch((error) => {
+          setAnnouncementError(error instanceof Error ? error.message : 'Ramiro no ha podido leer un pedido nuevo.');
+        });
       await announcementQueueRef.current;
     },
     [playBeep],
@@ -496,8 +506,10 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             </div>
           </div>
 
-          {errorMessage ? (
-            <div className="border-b border-stone-300 bg-white px-4 py-3 text-sm text-red-700 sm:px-6">{errorMessage}</div>
+          {errorMessage || announcementError ? (
+            <div className="border-b border-stone-300 bg-white px-4 py-3 text-sm text-red-700 sm:px-6">
+              {announcementError ?? errorMessage}
+            </div>
           ) : null}
 
           <div className="p-4 sm:p-6">

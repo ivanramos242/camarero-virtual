@@ -289,12 +289,12 @@ async function synthesizeKitchenAnnouncement(text: string) {
   const ai = new GoogleGenAI({
     apiKey: serverConfig.geminiApiKey,
     httpOptions: {
-      apiVersion: 'v1alpha',
+      apiVersion: 'v1beta',
     },
   });
 
   const response = await ai.models.generateContent({
-    model: serverConfig.geminiLiveModel,
+    model: serverConfig.geminiKitchenTtsModel,
     contents: text,
     config: {
       responseModalities: [Modality.AUDIO],
@@ -313,7 +313,7 @@ async function synthesizeKitchenAnnouncement(text: string) {
   );
 
   if (!audioPart?.inlineData?.data) {
-    throw new Error('Gemini no devolvio audio para el aviso de cocina.');
+    throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
   }
 
   return {

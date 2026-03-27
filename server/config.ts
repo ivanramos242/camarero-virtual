@@ -5,6 +5,7 @@ import 'dotenv/config';
 import type { AppBranding } from '../types.js';
 
 const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+const DEFAULT_GEMINI_KITCHEN_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 const deprecatedGeminiLiveModelMap: Record<string, string> = {
   'gemini-live-2.5-flash-preview': DEFAULT_GEMINI_LIVE_MODEL,
 };
@@ -85,6 +86,7 @@ export const serverConfig = {
   uploadMaxFileSizeBytes: 5 * 1024 * 1024,
   geminiApiKey: normalizeApiKey(process.env.GEMINI_API_KEY),
   geminiLiveModel: resolveGeminiLiveModel(process.env.GEMINI_LIVE_MODEL),
+  geminiKitchenTtsModel: process.env.GEMINI_KITCHEN_TTS_MODEL?.trim() || DEFAULT_GEMINI_KITCHEN_TTS_MODEL,
   openAiApiKey: normalizeApiKey(process.env.OPENAI_API_KEY),
   openAiRealtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || 'gpt-realtime',
   openAiVoice: process.env.OPENAI_REALTIME_VOICE?.trim() || 'alloy',
