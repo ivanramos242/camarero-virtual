@@ -187,6 +187,11 @@ function orderSortValue(order: PersistedOrder) {
   return getOrderAgeMinutes(order.createdAt) * -1;
 }
 
+function pickOrderPhrase(orderId: string, options: string[]) {
+  const seed = orderId.split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return options[seed % options.length];
+}
+
 function buildOrderAnnouncement(order: PersistedOrder) {
   const itemsSummary = order.items
     .map((item) => `${item.quantity} de ${item.name}`)
@@ -195,14 +200,47 @@ function buildOrderAnnouncement(order: PersistedOrder) {
     .filter((item) => item.notes)
     .map((item) => `${item.name}: ${item.notes}`)
     .join('. ');
-
-  return [
-    `Ojo cocina, entra pedido para la mesa ${order.tableNumber}.`,
-    order.clientName ? `A nombre de ${order.clientName}.` : null,
+  const opening = pickOrderPhrase(order.id, [
+    `Ojo cocina, se viene comanda para la mesa ${order.tableNumber}.`,
+    `Atencion equipo, entra pedido fresco para la mesa ${order.tableNumber}.`,
+    `Vamos al lio, pedido nuevo para la mesa ${order.tableNumber}.`,
+    `Marchando aviso bueno: mesa ${order.tableNumber} acaba de pedir.`,
+    `Venga cocina, apunta que entra comanda para la mesa ${order.tableNumber}.`,
+  ]);
+  const clientLine = order.clientName
+    ? pickOrderPhrase(order.id.slice(1), [
+        `A nombre de ${order.clientName}.`,
+        `La mesa va a nombre de ${order.clientName}.`,
+        `Toma nota, cliente ${order.clientName}.`,
+      ])
+    : null;
+  const summaryLine = pickOrderPhrase(order.id.slice(2), [
     `${order.diners} comensales y ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos.`,
-    itemsSummary ? `Marchando: ${itemsSummary}.` : null,
-    notesSummary ? `Atentos a estas notas: ${notesSummary}.` : null,
-  ]
+    `Son ${order.diners} comensales y salen ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos.`,
+    `${order.diners} personas en mesa y ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos al ruedo.`,
+  ]);
+  const itemsLine = itemsSummary
+    ? pickOrderPhrase(order.id.slice(3), [
+        `Marchando: ${itemsSummary}.`,
+        `Lo que va dentro es esto: ${itemsSummary}.`,
+        `Apunta la jugada: ${itemsSummary}.`,
+      ])
+    : null;
+  const notesLine = notesSummary
+    ? pickOrderPhrase(order.id.slice(4), [
+        `Ojito con estas notas: ${notesSummary}.`,
+        `Importante, atentos a esto: ${notesSummary}.`,
+        `Y no se nos pase este detalle: ${notesSummary}.`,
+      ])
+    : null;
+  const closing = pickOrderPhrase(order.id.slice(5), [
+    'Vamos con ello.',
+    'A darle caña.',
+    'Venga, que esto sale.',
+    'Dale ritmo a esa cocina.',
+  ]);
+
+  return [opening, clientLine, summaryLine, itemsLine, notesLine, closing]
     .filter(Boolean)
     .join(' ');
 }
@@ -228,6 +266,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const announcementQueueRef = useRef(Promise.resolve());
+  const prefetchQueueRef = useRef(Promise.resolve());
   const activeAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string; sampleRate: number }>>(new Map());
 
@@ -359,6 +398,16 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
     [playBeep],
   );
 
+  const prefetchAnnouncement = useCallback(async (order: PersistedOrder) => {
+    const cacheKey = `${order.id}:${order.lastUpdatedAt}`;
+    if (audioCacheRef.current.has(cacheKey)) {
+      return;
+    }
+
+    const audioPayload = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
+    audioCacheRef.current.set(cacheKey, audioPayload);
+  }, []);
+
   useEffect(() => {
     const currentIds = new Set(orders.map((order) => order.id));
     if (seenOrderIdsRef.current.size === 0) {
@@ -382,6 +431,22 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
       }
     })();
   }, [announcementsEnabled, orders, speakOrder]);
+
+  useEffect(() => {
+    const ordersToPrefetch = orders
+      .filter((order) => order.status !== 'served')
+      .sort((left, right) => orderSortValue(left) - orderSortValue(right))
+      .slice(0, 8);
+
+    for (const order of ordersToPrefetch) {
+      const cacheKey = `${order.id}:${order.lastUpdatedAt}`;
+      if (audioCacheRef.current.has(cacheKey)) {
+        continue;
+      }
+
+      prefetchQueueRef.current = prefetchQueueRef.current.then(() => prefetchAnnouncement(order)).catch(() => undefined);
+    }
+  }, [orders, prefetchAnnouncement]);
 
   useEffect(
     () => () => {

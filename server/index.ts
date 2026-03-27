@@ -285,9 +285,12 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
 function buildKitchenAnnouncementPrompt(text: string) {
   return [
     'Lee este aviso para cocina en espanol de Espana.',
-    'Habla con energia, picardia y personalidad.',
-    'Menos tranquilo y mas vivo, como un companero espabilado de cocina.',
-    'Ritmo agil, tono divertido, claro y directo.',
+    'Habla con energia, picardia, variedad y personalidad.',
+    'Menos tranquilo y mas vivo, como un companero espabilado de cocina con humor castizo.',
+    'Usa un tono divertido, espontaneo y algo canalla, sin sonar artificial.',
+    'Mete altibajos naturales de entonacion, con subidas y bajadas de tono y pequenas pausas expresivas.',
+    'Da enfasis a lo importante del pedido y cambia un poco el color de una frase a otra.',
+    'Ritmo agil, claro y directo, pero con gracia y chispa.',
     'No inventes nada ni anadas informacion.',
     `Aviso: ${text}`,
   ].join(' ');
