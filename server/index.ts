@@ -296,6 +296,10 @@ function buildKitchenAnnouncementPrompt(text: string) {
   ].join(' ');
 }
 
+function getErrorMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message : 'No se pudo generar la locucion de cocina.';
+}
+
 async function synthesizeKitchenAnnouncement(text: string) {
   if (!serverConfig.geminiApiKey) {
     throw new Error('La voz de Ramiro no esta disponible en el servidor.');
@@ -318,34 +322,50 @@ async function synthesizeKitchenAnnouncement(text: string) {
     },
   });
 
-  const response = await ai.models.generateContent({
-    model: serverConfig.geminiKitchenTtsModel,
-    contents: buildKitchenAnnouncementPrompt(text),
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: 'Puck',
+  const generateAnnouncement = async (contents: string) => {
+    const response = await ai.models.generateContent({
+      model: serverConfig.geminiKitchenTtsModel,
+      contents,
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: 'Puck',
+            },
           },
         },
       },
-    },
-  });
+    });
 
-  const audioPart = response.candidates?.[0]?.content?.parts?.find(
-    (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
-  );
+    const audioPart = response.candidates?.[0]?.content?.parts?.find(
+      (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
+    );
 
-  if (!audioPart?.inlineData?.data) {
-    throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
-  }
+    if (!audioPart?.inlineData?.data) {
+      throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
+    }
 
-  const payload = {
-    audioBase64: audioPart.inlineData.data,
-    mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
-    sampleRate: 24_000,
+    return {
+      audioBase64: audioPart.inlineData.data,
+      mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
+      sampleRate: 24_000,
+    };
   };
+
+  let payload: { audioBase64: string; mimeType: string; sampleRate: number };
+  try {
+    payload = await generateAnnouncement(buildKitchenAnnouncementPrompt(text));
+  } catch (richPromptError) {
+    console.error('[kitchen-voice] Fallo con prompt expresivo, se intentara fallback simple:', richPromptError);
+
+    try {
+      payload = await generateAnnouncement(text);
+    } catch (fallbackError) {
+      console.error('[kitchen-voice] Fallo tambien el fallback simple de cocina:', fallbackError);
+      throw new Error(getErrorMessage(fallbackError));
+    }
+  }
 
   kitchenAnnouncementCache.set(cacheKey, {
     payload,
@@ -701,8 +721,8 @@ app.post('/api/kitchen/announce', requireKitchenAuth, async (request, response) 
     const payload = await synthesizeKitchenAnnouncement(text);
     response.json(payload);
   } catch (error) {
-    const serviceError = toServiceError(error);
-    response.status(serviceError.status).json({ message: serviceError.message });
+    console.error('[kitchen-voice] No se pudo anunciar el pedido:', error);
+    response.status(502).json({ message: getErrorMessage(error) });
   }
 });
 
