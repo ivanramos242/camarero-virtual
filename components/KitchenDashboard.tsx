@@ -649,6 +649,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                             const nextAction = nextActionByStatus[order.status];
                             const isUpdating = pendingOrderIds.includes(order.id);
                             const isAnnouncing = announcingOrderId === order.id;
+                            const OrderVolumeIcon = announcementsEnabled ? Volume2 : VolumeX;
                             const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
                             const priority = getOrderPriority(order);
                             const PriorityIcon = priority.icon;
@@ -704,7 +705,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                         title="Leer pedido"
                                         aria-label="Leer pedido"
                                       >
-                                        {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <Volume2 size={15} />}
+                                        {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <OrderVolumeIcon size={15} />}
                                       </button>
                                       <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
                                         Error sync
@@ -721,7 +722,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                       title="Leer pedido"
                                       aria-label="Leer pedido"
                                     >
-                                      {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <Volume2 size={15} />}
+                                      {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <OrderVolumeIcon size={15} />}
                                     </button>
                                   )}
                                 </div>
