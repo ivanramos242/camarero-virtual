@@ -5,7 +5,7 @@ import { ChefHat, Loader2, Shield } from 'lucide-react';
 import KitchenDashboard from '../components/KitchenDashboard';
 import { useOrdersFeed } from '../hooks/useOrdersFeed';
 import type { AppBranding, OrderStatus as OrderState } from '../types';
-import { updateOrderStatusOnApi } from '../utils/api';
+import { clearServedOrdersOnApi, updateOrderStatusOnApi } from '../utils/api';
 
 interface LoginPageProps {
   authenticated: boolean;
@@ -95,6 +95,7 @@ export function KitchenPage({ branding, onLogout }: KitchenPageProps) {
   const { orders, setOrders, isLoading, error, refresh } = useOrdersFeed();
   const [pendingOrderIds, setPendingOrderIds] = useState<string[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isClearingServed, setIsClearingServed] = useState(false);
 
   const handleUpdateStatus = useCallback(
     async (orderId: string, status: OrderState) => {
@@ -132,6 +133,28 @@ export function KitchenPage({ branding, onLogout }: KitchenPageProps) {
     navigate('/kitchen/login');
   }, [navigate, onLogout]);
 
+  const handleClearServed = useCallback(async () => {
+    if (isClearingServed) {
+      return;
+    }
+
+    const shouldContinue = window.confirm('Se vaciaran los pedidos entregados del historial de cocina. Esta accion no se puede deshacer.');
+    if (!shouldContinue) {
+      return;
+    }
+
+    try {
+      setIsClearingServed(true);
+      setActionError(null);
+      const remainingOrders = await clearServedOrdersOnApi();
+      setOrders(remainingOrders);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'No se pudieron vaciar los entregados.');
+    } finally {
+      setIsClearingServed(false);
+    }
+  }, [isClearingServed, setOrders]);
+
   return (
     <KitchenDashboard
       orders={orders}
@@ -140,6 +163,10 @@ export function KitchenPage({ branding, onLogout }: KitchenPageProps) {
       isLoading={isLoading}
       errorMessage={actionError || error}
       pendingOrderIds={pendingOrderIds}
+      isClearingServed={isClearingServed}
+      onClearServed={() => {
+        void handleClearServed();
+      }}
       onUpdateStatus={(orderId, status) => {
         void handleUpdateStatus(orderId, status);
       }}

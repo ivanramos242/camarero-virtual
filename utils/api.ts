@@ -126,6 +126,12 @@ export async function updateOrderStatusOnApi(orderId: string, payload: UpdateOrd
   });
 }
 
+export async function clearServedOrdersOnApi() {
+  return request<PersistedOrder[]>('/api/orders/served', {
+    method: 'DELETE',
+  });
+}
+
 export async function fetchKitchenSession() {
   return request<SessionStatusResponse>('/api/auth/session', {
     method: 'GET',

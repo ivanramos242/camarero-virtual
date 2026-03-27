@@ -4,6 +4,7 @@ import {
   ChefHat,
   CircleAlert,
   Clock3,
+  Trash2,
   Loader2,
   LogOut,
   Mail,
@@ -26,6 +27,8 @@ interface KitchenDashboardProps {
   isLoading: boolean;
   errorMessage?: string | null;
   pendingOrderIds: string[];
+  isClearingServed: boolean;
+  onClearServed: () => void;
   onUpdateStatus: (orderId: string, status: OrderStatus) => void;
   onLogout: () => void;
   onRefresh: () => void;
@@ -179,7 +182,7 @@ function formatDateTime(value: string) {
 
 function orderSortValue(order: PersistedOrder) {
   if (order.status === 'served') {
-    return new Date(order.createdAt).getTime();
+    return -new Date(order.servedAt ?? order.lastUpdatedAt ?? order.createdAt).getTime();
   }
 
   return getOrderAgeMinutes(order.createdAt) * -1;
@@ -192,33 +195,45 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   isLoading,
   errorMessage,
   pendingOrderIds,
+  isClearingServed,
+  onClearServed,
   onUpdateStatus,
   onLogout,
   onRefresh,
 }) => {
   const [filterMode, setFilterMode] = useState<(typeof filterOptions)[number]['value']>('active');
 
-  const filteredOrders = useMemo(
-    () =>
-      orders.filter((order) => {
-        if (filterMode === 'active') {
-          return order.status !== 'served';
-        }
-
-        return order.status === 'served';
-      }),
-    [filterMode, orders],
-  );
-
   const groupedOrders = useMemo(
     () =>
       boardColumns.map((column) => ({
         ...column,
-        orders: filteredOrders
-          .filter((order) => order.status === column.status)
+        orders: orders
+          .filter((order) => {
+            if (column.status === 'served') {
+              return order.status === 'served';
+            }
+
+            if (filterMode === 'completed') {
+              return false;
+            }
+
+            return order.status === column.status;
+          })
           .sort((left, right) => orderSortValue(left) - orderSortValue(right)),
       })),
-    [filteredOrders],
+    [filterMode, orders],
+  );
+
+  const visibleBoardOrderCount = useMemo(
+    () =>
+      groupedOrders.reduce((sum, column) => {
+        if (column.status === 'served') {
+          return sum + Math.min(column.orders.length, filterMode === 'active' ? 8 : column.orders.length);
+        }
+
+        return sum + column.orders.length;
+      }, 0),
+    [filterMode, groupedOrders],
   );
 
   const stats = useMemo(() => {
@@ -331,23 +346,28 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
               </div>
             ) : null}
 
-            {!isLoading && filteredOrders.length === 0 ? (
+            {!isLoading && visibleBoardOrderCount === 0 ? (
               <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed border-stone-300 bg-white px-4 text-center text-sm text-stone-500">
                 No hay pedidos en esta vista.
               </div>
             ) : null}
 
-            {!isLoading && filteredOrders.length > 0 ? (
+            {!isLoading && visibleBoardOrderCount > 0 ? (
               <div className="overflow-x-auto pb-3">
                 <div className="flex min-h-[calc(100vh-290px)] snap-x snap-mandatory items-stretch gap-4 pr-2">
                   {groupedOrders.map((column) => {
                     const style = statusStyles[column.status];
                     const ColumnIcon = style.icon;
+                    const isServedColumn = column.status === 'served';
+                    const ordersToRender =
+                      isServedColumn && filterMode === 'active' ? column.orders.slice(0, 8) : column.orders;
 
                     return (
                       <section
                         key={column.status}
-                        className={`flex min-h-full w-[min(90vw,440px)] min-w-[320px] snap-start flex-col rounded-xl border ${style.column}`}
+                        className={`flex min-h-full snap-start flex-col rounded-xl border ${style.column} ${
+                          isServedColumn ? 'w-[220px] min-w-[220px]' : 'w-[min(90vw,440px)] min-w-[320px]'
+                        }`}
                       >
                         <div className="flex items-center justify-between gap-3 border-b border-black/5 px-4 py-4">
                           <div className="flex items-center gap-3">
@@ -361,22 +381,68 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                               </p>
                             </div>
                           </div>
-                          <span className={`text-2xl font-semibold ${style.columnCount}`}>{column.orders.length}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-2xl font-semibold ${style.columnCount}`}>{column.orders.length}</span>
+                            {isServedColumn ? (
+                              <button
+                                type="button"
+                                onClick={onClearServed}
+                                disabled={isClearingServed || column.orders.length === 0}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-600 transition hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                title="Vaciar entregados"
+                                aria-label="Vaciar entregados"
+                              >
+                                {isClearingServed ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
 
                         <div className="flex-1 space-y-4 overflow-y-auto p-4">
-                          {column.orders.length === 0 ? (
+                          {ordersToRender.length === 0 ? (
                             <div className="flex min-h-32 items-center justify-center rounded-xl border border-dashed border-stone-300 bg-white/70 px-4 text-center text-sm text-stone-500">
                               Sin pedidos en esta columna.
                             </div>
                           ) : null}
 
-                          {column.orders.map((order) => {
+                          {ordersToRender.map((order) => {
                             const nextAction = nextActionByStatus[order.status];
                             const isUpdating = pendingOrderIds.includes(order.id);
                             const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
                             const priority = getOrderPriority(order);
                             const PriorityIcon = priority.icon;
+
+                            if (isServedColumn) {
+                              return (
+                                <article
+                                  key={order.id}
+                                  className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm"
+                                >
+                                  <div className={`h-2 w-full ${style.strip}`} />
+                                  <div className="space-y-3 px-3 py-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div>
+                                        <p className="text-sm font-semibold text-stone-950">Mesa {order.tableNumber}</p>
+                                        <p className="text-xs text-stone-500">#{order.id.slice(0, 8)}</p>
+                                      </div>
+                                      <span className="rounded-md border border-stone-200 bg-stone-100 px-2 py-1 text-[11px] font-medium text-stone-700">
+                                        {priority.ageMinutes} min
+                                      </span>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                      <p className="text-xs font-medium text-stone-700">{order.clientName || 'Sin nombre'}</p>
+                                      <p className="text-xs text-stone-500">
+                                        {itemCount} platos · {order.totalPrice.toFixed(2)} €
+                                      </p>
+                                      <p className="text-xs text-stone-500">
+                                        Entregado {formatTime(order.servedAt) || formatTime(order.lastUpdatedAt)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </article>
+                              );
+                            }
 
                             return (
                               <article
@@ -513,6 +579,13 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                               </article>
                             );
                           })}
+
+                          {isServedColumn && filterMode === 'active' && column.orders.length > ordersToRender.length ? (
+                            <div className="rounded-xl border border-dashed border-stone-300 bg-white/70 px-3 py-3 text-center text-xs text-stone-500">
+                              {column.orders.length - ordersToRender.length} entregados más en historial.
+                              <div className="mt-1">Usa el filtro `Completados` para verlos todos.</div>
+                            </div>
+                          ) : null}
                         </div>
                       </section>
                     );

@@ -41,7 +41,7 @@ import {
   updateMenuItem,
   updateMenuItemAvailability,
 } from './menu.js';
-import { createOrder, listOrders, seedLegacyOrdersFromSheetIfNeeded, toServiceError, updateOrderStatus } from './orders.js';
+import { clearServedOrders, createOrder, listOrders, seedLegacyOrdersFromSheetIfNeeded, toServiceError, updateOrderStatus } from './orders.js';
 import { appStore } from './store.js';
 import { createTable, deleteTable, getTableQr, getTablesQrBatch, listTables, toTablesServiceError, updateTable, updateTableStatus } from './tables.js';
 
@@ -601,6 +601,16 @@ app.patch('/api/orders/:orderId/status', requireKitchenAuth, async (request, res
     const orderId = Array.isArray(request.params.orderId) ? request.params.orderId[0] : request.params.orderId;
     const order = await updateOrderStatus(orderId, status);
     response.json(order);
+  } catch (error) {
+    const serviceError = toServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.delete('/api/orders/served', requireKitchenAuth, async (_request, response) => {
+  try {
+    const orders = await clearServedOrders();
+    response.json(orders);
   } catch (error) {
     const serviceError = toServiceError(error);
     response.status(serviceError.status).json({ message: serviceError.message });

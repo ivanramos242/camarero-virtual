@@ -371,6 +371,16 @@ export async function updateOrderStatus(orderId: string, nextStatus: OrderStatus
   return updatedOrder;
 }
 
+export async function clearServedOrders() {
+  const nextStore = await appStore.update((currentStore) => ({
+    ...currentStore,
+    orders: currentStore.orders.filter((order) => order.status !== 'served'),
+  }));
+
+  appStore.notifyOrdersChanged(nextStore.orders);
+  return sortOrders(nextStore.orders);
+}
+
 export function toServiceError(error: unknown) {
   if (error instanceof ServiceError) {
     return error;
