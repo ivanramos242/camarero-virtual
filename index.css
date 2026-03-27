@@ -171,32 +171,34 @@ button {
   0%,
   100% {
     transform: scale(1);
+    opacity: 0.92;
   }
 
   50% {
-    transform: scale(1.02);
+    transform: scale(1.024);
+    opacity: 1;
   }
 }
 
 @keyframes voice-listening-wave {
   0%,
   100% {
-    transform: translateZ(0) rotate(0deg) scale(calc(1.01 + var(--voice-energy, 0.12) * 0.1));
+    transform: translateZ(0) rotate(0deg) scale(calc(1.015 + var(--voice-energy, 0.12) * 0.11));
     border-radius: 46% 54% 52% 48% / 50% 45% 55% 50%;
   }
 
   25% {
-    transform: translateZ(0) rotate(90deg) scale(calc(1.05 + var(--voice-energy, 0.12) * 0.18));
+    transform: translateZ(0) rotate(90deg) scale(calc(1.045 + var(--voice-energy, 0.12) * 0.15));
     border-radius: 57% 43% 47% 53% / 44% 57% 43% 56%;
   }
 
   50% {
-    transform: translateZ(0) rotate(180deg) scale(calc(1.08 + var(--voice-energy, 0.12) * 0.22));
+    transform: translateZ(0) rotate(180deg) scale(calc(1.07 + var(--voice-energy, 0.12) * 0.18));
     border-radius: 43% 57% 58% 42% / 58% 44% 56% 42%;
   }
 
   75% {
-    transform: translateZ(0) rotate(270deg) scale(calc(1.04 + var(--voice-energy, 0.12) * 0.16));
+    transform: translateZ(0) rotate(270deg) scale(calc(1.04 + var(--voice-energy, 0.12) * 0.14));
     border-radius: 55% 45% 44% 56% / 46% 55% 45% 54%;
   }
 }
@@ -228,6 +230,19 @@ button {
   }
 }
 
+@keyframes voice-processing-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.1;
+  }
+
+  50% {
+    transform: scale(1.035);
+    opacity: 0.18;
+  }
+}
+
 @keyframes voice-speaking-glow {
   0%,
   100% {
@@ -238,6 +253,29 @@ button {
   50% {
     transform: scale(calc(1.04 + var(--voice-energy, 0.42) * 0.06));
     opacity: 0.18;
+  }
+}
+
+@keyframes voice-icon-listen {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+
+  50% {
+    transform: translateY(-1px) scale(calc(1.02 + var(--voice-energy, 0.12) * 0.04));
+  }
+}
+
+@keyframes voice-helper-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -255,6 +293,8 @@ button {
   --voice-face-edge: rgba(255, 255, 255, 0.16);
   --voice-face-highlight: rgba(255, 255, 255, 0.16);
   --voice-face-depth: rgba(0, 0, 0, 0.35);
+  --voice-motion-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --voice-motion-soft: cubic-bezier(0.33, 1, 0.68, 1);
   width: 108px;
   height: 108px;
   position: relative;
@@ -264,9 +304,9 @@ button {
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
   transition:
-    width 220ms ease,
-    height 220ms ease,
-    filter 180ms ease;
+    width 280ms var(--voice-motion-smooth),
+    height 280ms var(--voice-motion-smooth),
+    filter 220ms var(--voice-motion-soft);
 }
 
 @media (min-width: 1024px) {
@@ -293,6 +333,14 @@ button {
 .voice-orb[data-state='listening'] {
   width: min(76vw, 248px);
   height: min(76vw, 248px);
+}
+
+.voice-orb[data-state='processing'] {
+  filter: saturate(1.03);
+}
+
+.voice-orb[data-state='speaking'] {
+  filter: saturate(1.05);
 }
 
 .voice-orb[data-state='idle'] .voice-orb__button-face,
@@ -381,13 +429,19 @@ button {
   filter: blur(4px);
   transform: translateY(8px) scale(0.92);
   opacity: 1;
-  transition: box-shadow 180ms ease, opacity 180ms ease;
+  transition: box-shadow 220ms var(--voice-motion-soft), opacity 220ms var(--voice-motion-soft), transform 220ms var(--voice-motion-soft);
+}
+
+.voice-orb[data-pressed='true'] .voice-orb__shadow,
+.voice-orb[data-state='listening'] .voice-orb__shadow {
+  transform: translateY(10px) scale(0.9);
 }
 
 .voice-orb__ghost {
   inset: -6px;
   border: 1.5px solid rgba(var(--voice-rgb), var(--voice-ring-alpha));
-  transition: opacity 180ms ease, transform 180ms ease, border-color 180ms ease;
+  opacity: 0.96;
+  transition: opacity 220ms var(--voice-motion-soft), transform 220ms var(--voice-motion-soft), border-color 220ms var(--voice-motion-soft), inset 240ms var(--voice-motion-smooth);
 }
 
 .voice-orb[data-pressed='true'] .voice-orb__ghost,
@@ -401,7 +455,7 @@ button {
   filter: blur(18px);
   opacity: 1;
   transform: scale(0.96);
-  transition: opacity 220ms ease, transform 220ms ease;
+  transition: opacity 240ms var(--voice-motion-soft), transform 260ms var(--voice-motion-smooth);
 }
 
 .voice-orb__button-face {
@@ -412,15 +466,16 @@ button {
   background: var(--voice-face-bg);
   box-shadow:
     inset 0 1px 0 var(--voice-face-highlight),
-    inset 0 -8px 20px var(--voice-face-depth);
-  transition: transform 220ms ease, box-shadow 220ms ease, background 220ms ease;
+    inset 0 -8px 20px var(--voice-face-depth),
+    0 10px 20px rgba(0, 0, 0, 0.08);
+  transition: transform 260ms var(--voice-motion-smooth), box-shadow 260ms var(--voice-motion-soft), background 260ms var(--voice-motion-soft);
 }
 
 .voice-orb__button-edge {
   inset: 1px;
   border: 1px solid var(--voice-face-edge);
   opacity: 0.9;
-  transition: border-color 220ms ease;
+  transition: border-color 240ms var(--voice-motion-soft), opacity 240ms var(--voice-motion-soft);
 }
 
 .voice-orb__button-core {
@@ -428,6 +483,7 @@ button {
   align-items: center;
   justify-content: center;
   color: var(--voice-icon-color);
+  transition: color 200ms var(--voice-motion-soft);
 }
 
 .voice-orb__button-stack {
@@ -438,7 +494,7 @@ button {
   gap: 6px;
   transform: translateY(1px);
   padding-inline: 12px;
-  transition: gap 180ms ease, padding 180ms ease;
+  transition: gap 220ms var(--voice-motion-soft), padding 220ms var(--voice-motion-soft), transform 220ms var(--voice-motion-soft);
 }
 
 .voice-orb__button-label {
@@ -452,19 +508,21 @@ button {
   max-width: 76px;
   text-align: center;
   text-wrap: balance;
-  transition: font-size 180ms ease, max-width 180ms ease, opacity 180ms ease;
+  transition: font-size 220ms var(--voice-motion-soft), max-width 220ms var(--voice-motion-soft), opacity 180ms var(--voice-motion-soft), letter-spacing 180ms var(--voice-motion-soft);
 }
 
 .voice-orb[data-pressed='true'] .voice-orb__button-stack,
 .voice-orb[data-state='listening'] .voice-orb__button-stack {
   gap: 12px;
   padding-inline: 20px;
+  transform: translateY(0);
 }
 
 .voice-orb[data-pressed='true'] .voice-orb__button-core svg,
 .voice-orb[data-state='listening'] .voice-orb__button-core svg {
   width: 54px;
   height: 54px;
+  animation: voice-icon-listen 1.4s ease-in-out infinite;
 }
 
 .voice-orb[data-pressed='true'] .voice-orb__button-label,
@@ -485,13 +543,15 @@ button {
 }
 
 .voice-orb__processing-orbit {
-  inset: -12px;
-  border: 1.5px solid rgba(var(--voice-rgb), 0.1);
-  border-right-color: rgba(var(--voice-rgb), 0.32);
-  border-top-color: rgba(var(--voice-rgb), 0.32);
+  inset: -14px;
+  border: 1.5px solid rgba(var(--voice-rgb), 0.08);
+  border-right-color: rgba(var(--voice-rgb), 0.34);
+  border-top-color: rgba(var(--voice-rgb), 0.28);
   opacity: var(--voice-processing-alpha);
-  animation: voice-processing-orbit 1.8s linear infinite;
-  transition: opacity 180ms ease;
+  animation:
+    voice-processing-orbit 2.1s linear infinite,
+    voice-processing-breathe 1.9s ease-in-out infinite;
+  transition: opacity 220ms var(--voice-motion-soft), inset 220ms var(--voice-motion-soft);
 }
 
 .voice-orb__listening-inner {
@@ -499,7 +559,7 @@ button {
   border: 2px solid rgba(var(--voice-rgb), calc(0.2 + var(--voice-energy, 0.12) * 0.18));
   opacity: var(--voice-wave-alpha);
   transform: scale(calc(var(--voice-mic-scale, 1.04) + 0.02));
-  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+  transition: opacity 160ms var(--voice-motion-soft), transform 180ms var(--voice-motion-soft), border-color 160ms var(--voice-motion-soft);
 }
 
 .voice-orb__listening-wave {
@@ -509,16 +569,16 @@ button {
     0 0 28px rgba(255, 255, 255, 0.68),
     0 0 54px rgba(var(--voice-rgb), 0.22);
   mix-blend-mode: normal;
-  opacity: calc(var(--voice-wave-alpha) * 0.94);
-  animation: voice-listening-wave 1.9s linear infinite;
-  transition: opacity 120ms ease;
+  opacity: calc(var(--voice-wave-alpha) * 0.88);
+  animation: voice-listening-wave 2.15s linear infinite;
+  transition: opacity 180ms var(--voice-motion-soft), inset 220ms var(--voice-motion-smooth);
 }
 
 .voice-orb__listening-wave--b {
   inset: -28px;
-  animation-duration: 2.35s;
+  animation-duration: 2.7s;
   animation-direction: reverse;
-  opacity: calc(var(--voice-wave-alpha) * 0.62);
+  opacity: calc(var(--voice-wave-alpha) * 0.54);
 }
 
 .voice-orb__listening-blur {
@@ -527,14 +587,14 @@ button {
   filter: blur(28px);
   opacity: var(--voice-wave-alpha);
   transform: scale(calc(1.08 + var(--voice-energy, 0.12) * 0.22));
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity 220ms var(--voice-motion-soft), transform 220ms var(--voice-motion-soft);
 }
 
 .voice-orb__speaking-ring {
   inset: -5px;
   border: 2px solid rgba(var(--voice-rgb), 0.34);
   opacity: var(--voice-speaking-alpha);
-  transition: opacity 180ms ease;
+  transition: opacity 220ms var(--voice-motion-soft), transform 220ms var(--voice-motion-soft);
 }
 
 .voice-orb__speaking-pulse {
@@ -542,6 +602,7 @@ button {
   border: 2px solid rgba(var(--voice-rgb), 0.26);
   box-shadow: 0 0 32px rgba(var(--voice-rgb), 0.14);
   opacity: 0;
+  transition: opacity 220ms var(--voice-motion-soft);
 }
 
 .voice-orb[data-state='speaking'] .voice-orb__glow {
@@ -564,7 +625,8 @@ button {
 .voice-orb__helper {
   max-width: 280px;
   opacity: 0.88;
-  transition: font-size 180ms ease, line-height 180ms ease, opacity 180ms ease, transform 180ms ease;
+  animation: voice-helper-fade 220ms var(--voice-motion-soft);
+  transition: font-size 220ms var(--voice-motion-soft), line-height 220ms var(--voice-motion-soft), opacity 180ms var(--voice-motion-soft), transform 180ms var(--voice-motion-soft);
 }
 
 .voice-orb[data-pressed='true'] + .voice-orb__helper,
