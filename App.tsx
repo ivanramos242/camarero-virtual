@@ -1291,6 +1291,7 @@ function AssistantPanel({
   showDebug,
   volumeLevel,
 }: AssistantPanelProps) {
+  const [isPointerPressed, setIsPointerPressed] = useState(false);
   const isConnecting = status === 'connecting';
   const isListening = turnState === 'recording';
   const isProcessing = turnState === 'processing' || isConnecting;
@@ -1298,27 +1299,37 @@ function AssistantPanel({
   const hasIssue = disabled || status === 'error' || turnState === 'error' || Boolean(latestError);
   const isTurnLocked = isProcessing || isSpeaking;
   const isInteractive = !disabled && !isTurnLocked;
+  const isPressingToTalk = isPointerPressed && isInteractive && !hasIssue && !isListening;
   const micEnergy = Math.max(0.12, Math.min(volumeLevel, 1));
-  const visualEnergy = isListening ? micEnergy : isSpeaking ? 0.42 : isProcessing ? 0.2 : 0.08;
-  const pressLabel = isListening
-    ? 'Grabando. Suelta para enviar.'
+  const visualEnergy = isListening || isPressingToTalk ? micEnergy : isSpeaking ? 0.42 : isProcessing ? 0.2 : 0.08;
+  const pressLabel = isListening || isPressingToTalk
+    ? 'Habla ahora. Suelta para enviar.'
     : isProcessing
-      ? 'Ramiro esta pensando. Espera su respuesta.'
+      ? 'Ramiro esta pensando. Espera un momento.'
       : isSpeaking
-        ? 'Ramiro esta hablando. Espera a que termine.'
+        ? 'Ramiro esta respondiendo. Espera a que termine.'
         : hasIssue
           ? disabledMessage || latestError || 'La sesion de voz no esta disponible.'
-          : 'Mantener pulsado para hablar con Ramiro.';
+          : 'Mantén pulsado para hablar con Ramiro.';
   const accessibilityLabel = `${assistantName}. ${pressLabel}`;
   const orbLabel = hasIssue
-    ? 'Reintenta'
-    : isListening
-      ? 'hablando'
+    ? 'No disponible'
+    : isListening || isPressingToTalk
+      ? 'Habla ahora'
       : isProcessing
-        ? 'Pensando espera'
+        ? 'Pensando...'
         : isSpeaking
-          ? 'espera y escucha'
-          : 'Mantén y habla';
+          ? 'Escucha'
+          : 'Mantén para hablar';
+  const helperLabel = hasIssue
+    ? disabledMessage || latestError || 'El canal de voz no esta disponible ahora.'
+    : isListening || isPressingToTalk
+      ? 'Te estoy escuchando. Suelta cuando termines.'
+      : isProcessing
+        ? 'Estoy preparando la respuesta.'
+        : isSpeaking
+          ? 'Ramiro esta respondiendo en voz.'
+          : 'Pulsa y mantén para pedir, preguntar o llamar al camarero.';
   const orbState = hasIssue
     ? 'error'
     : isListening
@@ -1334,15 +1345,22 @@ function AssistantPanel({
     '--voice-speaking-scale': (1 + visualEnergy * 0.14).toFixed(3),
   } as React.CSSProperties;
 
+  useEffect(() => {
+    if (!isInteractive || hasIssue || !isListening) {
+      setIsPointerPressed(false);
+    }
+  }, [hasIssue, isInteractive, isListening]);
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 flex justify-center px-4 lg:bottom-[16vh]">
-      <div className="pointer-events-auto relative">
+      <div className="pointer-events-auto relative flex flex-col items-center gap-3">
         <button
           type="button"
           aria-label={accessibilityLabel}
           title={pressLabel}
           disabled={!isInteractive}
           data-state={orbState}
+          data-pressed={isPointerPressed ? 'true' : 'false'}
           onSelect={(event) => event.preventDefault()}
           onSelectStart={(event) => event.preventDefault()}
           onDoubleClick={() => {
@@ -1352,20 +1370,26 @@ function AssistantPanel({
           }}
           onPointerDown={(event) => {
             event.preventDefault();
+            setIsPointerPressed(true);
             void onBeginPressToTalk();
           }}
           onPointerUp={(event) => {
             event.preventDefault();
+            setIsPointerPressed(false);
             onEndPressToTalk();
           }}
-          onPointerCancel={() => onEndPressToTalk()}
+          onPointerCancel={() => {
+            setIsPointerPressed(false);
+            onEndPressToTalk();
+          }}
           onPointerLeave={(event) => {
             if (event.buttons === 1) {
+              setIsPointerPressed(false);
               onEndPressToTalk();
             }
           }}
           onContextMenu={(event) => event.preventDefault()}
-          className="voice-orb group relative inline-flex h-[96px] w-[96px] touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none transition-transform duration-200 ease-out hover:scale-[1.04] focus-visible:scale-[1.04] disabled:cursor-not-allowed lg:h-[104px] lg:w-[104px]"
+          className="voice-orb group relative inline-flex touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none disabled:cursor-not-allowed"
           style={orbStyle}
         >
           <span className="voice-orb__shadow" aria-hidden="true" />
@@ -1399,6 +1423,12 @@ function AssistantPanel({
             {status === 'connected' ? 'Doble toque para cerrar la sesion de voz.' : ''}
           </span>
         </button>
+        <p
+          className="voice-orb__helper max-w-[20rem] px-2 text-center text-[13px] font-medium leading-[1.35] text-stone-700"
+          aria-live="polite"
+        >
+          {helperLabel}
+        </p>
       </div>
     </div>
   );
