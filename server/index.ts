@@ -215,6 +215,28 @@ const isSessionAuthenticated = (sessions: Map<string, number>, sessionId: string
 const isKitchenAuthenticated = (sessionId: string | undefined) => isSessionAuthenticated(kitchenSessions, sessionId);
 const isAdminAuthenticated = (sessionId: string | undefined) => isSessionAuthenticated(adminSessions, sessionId);
 
+const refreshSession = (
+  response: express.Response,
+  sessions: Map<string, number>,
+  sessionId: string | undefined,
+  cookieName: string,
+  durationMs: number,
+) => {
+  if (!sessionId || !sessions.has(sessionId)) {
+    return false;
+  }
+
+  const nextExpiresAt = Date.now() + durationMs;
+  sessions.set(sessionId, nextExpiresAt);
+  response.cookie(cookieName, sessionId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: serverConfig.isProduction,
+    maxAge: durationMs,
+  });
+  return true;
+};
+
 const requireKitchenAuth: express.RequestHandler = (request, response, next) => {
   const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.sessionCookieName]);
   if (!isKitchenAuthenticated(sessionId)) {
@@ -222,6 +244,13 @@ const requireKitchenAuth: express.RequestHandler = (request, response, next) => 
     return;
   }
 
+  refreshSession(
+    response,
+    kitchenSessions,
+    sessionId,
+    serverConfig.sessionCookieName,
+    serverConfig.kitchenSessionDurationMs,
+  );
   next();
 };
 
@@ -232,6 +261,13 @@ const requireAdminAuth: express.RequestHandler = (request, response, next) => {
     return;
   }
 
+  refreshSession(
+    response,
+    adminSessions,
+    sessionId,
+    serverConfig.adminSessionCookieName,
+    serverConfig.adminSessionDurationMs,
+  );
   next();
 };
 
@@ -789,8 +825,19 @@ app.post('/api/kitchen/announce', requireKitchenAuth, async (request, response) 
 
 app.get('/api/auth/session', (request, response) => {
   const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.sessionCookieName]);
+  const authenticated = isKitchenAuthenticated(sessionId);
+  if (authenticated) {
+    refreshSession(
+      response,
+      kitchenSessions,
+      sessionId,
+      serverConfig.sessionCookieName,
+      serverConfig.kitchenSessionDurationMs,
+    );
+  }
+
   const session: SessionStatusResponse = {
-    authenticated: isKitchenAuthenticated(sessionId),
+    authenticated,
     kitchenName: publicBranding.kitchenName,
   };
 
@@ -830,8 +877,19 @@ app.post('/api/auth/logout', (request, response) => {
 
 app.get('/api/admin/auth/session', (request, response) => {
   const sessionId = getSessionIdFromCookies(request.cookies?.[serverConfig.adminSessionCookieName]);
+  const authenticated = isAdminAuthenticated(sessionId);
+  if (authenticated) {
+    refreshSession(
+      response,
+      adminSessions,
+      sessionId,
+      serverConfig.adminSessionCookieName,
+      serverConfig.adminSessionDurationMs,
+    );
+  }
+
   const session: AdminSessionStatusResponse = {
-    authenticated: isAdminAuthenticated(sessionId),
+    authenticated,
     restaurantName: publicBranding.restaurantName,
   };
 

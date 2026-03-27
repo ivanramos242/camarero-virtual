@@ -41,6 +41,8 @@ const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const PLAYBACK_GAIN = 2.15;
 const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
+const AUTO_RECONNECT_DELAY_MS = 1_500;
+const MAX_AUTO_RECONNECT_ATTEMPTS = 2;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -318,6 +320,8 @@ export function useLiveSession({
   const turnStateRef = useRef<VoiceTurnState>('idle');
   const hasRunDiagnosticsRef = useRef(false);
   const captureTeardownTimeoutRef = useRef<number | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const lastAssistantTextRef = useRef('');
   const lastOutputTranscriptRef = useRef('');
@@ -386,6 +390,13 @@ export function useLiveSession({
     if (captureTeardownTimeoutRef.current) {
       window.clearTimeout(captureTeardownTimeoutRef.current);
       captureTeardownTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearReconnectTimeout = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      window.clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
   }, []);
 
@@ -485,6 +496,7 @@ export function useLiveSession({
     (nextStatus: ConnectionStatus) => {
       clearRecordingTimeout();
       clearCaptureTeardownTimeout();
+      clearReconnectTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
       sessionPromiseRef.current = null;
@@ -516,11 +528,12 @@ export function useLiveSession({
       setStatusSafe(nextStatus);
       setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, clearReconnectTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;
+    reconnectAttemptsRef.current = 0;
     addLog('system', 'Sesion cerrada.');
     resetSession('disconnected');
   }, [addLog, resetSession]);
@@ -1031,6 +1044,8 @@ export function useLiveSession({
         },
         callbacks: {
           onopen: () => {
+            reconnectAttemptsRef.current = 0;
+            clearReconnectTimeout();
             addLog('system', `Sesion de voz abierta con ${branding.assistantName} por Gemini.`);
             setStatusSafe('connected');
             if (isSafariBrowser()) {
@@ -1145,27 +1160,21 @@ export function useLiveSession({
             }
           },
           onclose: (event) => {
-            geminiSessionRef.current = null;
-            sessionRef.current = null;
-            sessionPromiseRef.current = null;
             const code = typeof event?.code === 'number' ? ` Codigo: ${event.code}.` : '';
             const reason = typeof event?.reason === 'string' && event.reason.trim() ? ` Motivo: ${event.reason}.` : '';
             addLog('system', `La conexion de voz de Gemini se ha cerrado.${code}${reason}`);
 
             if (!manualDisconnectRef.current) {
               void runVoiceDiagnostics();
-              setTurnStateSafe('error');
-              setStatusSafe('error');
+              resetSession('error');
             } else {
-              setTurnStateSafe('idle');
-              setStatusSafe('disconnected');
+              resetSession('disconnected');
             }
           },
           onerror: (error) => {
             addLog('error', error.message || 'Se ha producido un error en la sesion de Gemini.');
             void runVoiceDiagnostics();
-            setTurnStateSafe('error');
-            setStatusSafe('error');
+            resetSession('error');
           },
         },
       });
@@ -1205,6 +1214,8 @@ export function useLiveSession({
     geminiTools,
     runTool,
     runVoiceDiagnostics,
+    clearReconnectTimeout,
+    resetSession,
     setPreferredAudioSession,
     setStatusSafe,
     setTurnStateSafe,
@@ -1267,6 +1278,36 @@ export function useLiveSession({
     setVolumeLevel(0);
     addLog('system', 'Audio enviado a Ramiro.');
   }, [addLog, clearRecordingTimeout, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
+
+  useEffect(() => {
+    if (
+      status !== 'error' ||
+      manualDisconnectRef.current ||
+      !branding.voiceEnabled ||
+      reconnectAttemptsRef.current >= MAX_AUTO_RECONNECT_ATTEMPTS
+    ) {
+      return;
+    }
+
+    clearReconnectTimeout();
+    reconnectAttemptsRef.current += 1;
+    const attempt = reconnectAttemptsRef.current;
+
+    reconnectTimeoutRef.current = window.setTimeout(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+
+      addLog('system', `Reintentando recuperar la voz (${attempt}/${MAX_AUTO_RECONNECT_ATTEMPTS})...`);
+      void ensureGeminiSession().catch((error) => {
+        addLog('error', error instanceof Error ? error.message : 'No se pudo recuperar la sesion de voz.');
+      });
+    }, AUTO_RECONNECT_DELAY_MS);
+
+    return () => {
+      clearReconnectTimeout();
+    };
+  }, [addLog, branding.voiceEnabled, clearReconnectTimeout, ensureGeminiSession, status]);
 
   useEffect(() => () => resetSession('disconnected'), [resetSession]);
 

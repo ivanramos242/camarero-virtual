@@ -115,6 +115,22 @@ function getSessionDetailsStorageKey(tableNumber: string) {
   return `dining-session:${tableNumber || 'unknown'}`;
 }
 
+function getSessionDetailsStorage() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.localStorage;
+  } catch {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  }
+}
+
 function isValidReviewEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -525,7 +541,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     }
 
     const storageKey = getSessionDetailsStorageKey(tableNumber);
-    const savedSession = window.sessionStorage.getItem(storageKey);
+    const storage = getSessionDetailsStorage();
+    const savedSession = storage?.getItem(storageKey);
 
     if (!savedSession) {
       if (branding.showWifiPopup && branding.wifiSsid.trim()) {
@@ -569,7 +586,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
       setIsSessionModalOpen(false);
     } catch {
-      window.sessionStorage.removeItem(storageKey);
+      storage?.removeItem(storageKey);
       if (branding.showWifiPopup && branding.wifiSsid.trim()) {
         setIsWifiModalOpen(true);
         setIsSessionModalOpen(false);
@@ -674,8 +691,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     setReviewConsent(nextReviewConsent);
     setIsSessionModalOpen(false);
 
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(
+    const storage = getSessionDetailsStorage();
+    if (storage) {
+      storage.setItem(
         getSessionDetailsStorageKey(tableNumber),
         JSON.stringify({
           clientName: trimmedName,
@@ -692,8 +710,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setClientName(value);
       setDraftClientName(value);
 
-      if (typeof window !== 'undefined' && tableNumber && value.trim()) {
-        window.sessionStorage.setItem(
+      const storage = getSessionDetailsStorage();
+      if (storage && tableNumber && value.trim()) {
+        storage.setItem(
           getSessionDetailsStorageKey(tableNumber),
           JSON.stringify({
             clientName: value.trim(),
@@ -713,8 +732,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setDinersCount(nextValue);
       setDraftDinersCount(nextValue);
 
-      if (typeof window !== 'undefined' && tableNumber) {
-        window.sessionStorage.setItem(
+      const storage = getSessionDetailsStorage();
+      if (storage && tableNumber) {
+        storage.setItem(
           getSessionDetailsStorageKey(tableNumber),
           JSON.stringify({
             clientName: clientName.trim() || 'Cliente',

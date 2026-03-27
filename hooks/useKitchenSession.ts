@@ -27,6 +27,16 @@ export function useKitchenSession() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void refresh().catch(() => undefined);
+    }, 1000 * 60 * 5);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refresh]);
+
   const login = useCallback(
     async (password: string) => {
       await loginKitchen(password);
