@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 
 import type { OrderStatus, PersistedOrder } from '../types';
+import { synthesizeKitchenAnnouncementOnApi } from '../utils/api';
+import { base64ToUint8Array, decodeAudioData } from '../utils/audio';
 
 interface KitchenDashboardProps {
   orders: PersistedOrder[];
@@ -218,6 +220,8 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   const [announcementsEnabled, setAnnouncementsEnabled] = useState(true);
   const seenOrderIdsRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const announcementQueueRef = useRef(Promise.resolve());
 
   const playBeep = useCallback(async () => {
     if (typeof window === 'undefined') {
@@ -254,31 +258,55 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   }, []);
 
   const speakOrder = useCallback(
-    async (order: PersistedOrder) => {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    async (order: PersistedOrder, interrupt = false) => {
+      if (typeof window === 'undefined') {
         return;
       }
 
-      await playBeep();
+      const run = async () => {
+        await playBeep();
+        const { audioBase64 } = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
 
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(buildOrderAnnouncement(order));
-      utterance.lang = 'es-ES';
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
+        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextClass) {
+          return;
+        }
 
-      const preferredVoice =
-        window.speechSynthesis
-          .getVoices()
-          .find((voice) => voice.lang.toLowerCase().startsWith('es') && /male|jorge|enrique|antonio/i.test(voice.name)) ??
-        window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith('es'));
+        const context = audioContextRef.current ?? new AudioContextClass({ sampleRate: 24_000 });
+        audioContextRef.current = context;
 
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
+        if (context.state === 'suspended') {
+          await context.resume();
+        }
+
+        if (activeSourceRef.current) {
+          activeSourceRef.current.stop();
+          activeSourceRef.current.disconnect();
+          activeSourceRef.current = null;
+        }
+
+        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioBase64), context, 24_000);
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(context.destination);
+        activeSourceRef.current = source;
+        source.start();
+        source.onended = () => {
+          if (activeSourceRef.current === source) {
+            activeSourceRef.current = null;
+          }
+          source.disconnect();
+        };
+      };
+
+      if (interrupt) {
+        announcementQueueRef.current = Promise.resolve();
+        await run();
+        return;
       }
 
-      window.speechSynthesis.speak(utterance);
+      announcementQueueRef.current = announcementQueueRef.current.then(run).catch(() => undefined);
+      await announcementQueueRef.current;
     },
     [playBeep],
   );
@@ -306,6 +334,22 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
       }
     })();
   }, [announcementsEnabled, orders, speakOrder]);
+
+  useEffect(
+    () => () => {
+      if (activeSourceRef.current) {
+        activeSourceRef.current.stop();
+        activeSourceRef.current.disconnect();
+        activeSourceRef.current = null;
+      }
+
+      if (audioContextRef.current) {
+        void audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    },
+    [],
+  );
 
   const activeColumns = useMemo(
     () =>
@@ -529,7 +573,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          void speakOrder(order);
+                                          void speakOrder(order, true);
                                         }}
                                         className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
                                         title="Leer pedido"
@@ -545,7 +589,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        void speakOrder(order);
+                                        void speakOrder(order, true);
                                       }}
                                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
                                       title="Leer pedido"

@@ -78,6 +78,10 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const kitchenAnnouncementSchema = z.object({
+  text: z.string().trim().min(1).max(1500),
+});
+
 const menuImageUrlSchema = z.union([
   z.string().trim().url(),
   z.string().trim().startsWith('/uploads/'),
@@ -276,6 +280,48 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
   endpoint: '/api/session/openai',
   voice: serverConfig.openAiVoice,
 });
+
+async function synthesizeKitchenAnnouncement(text: string) {
+  if (!serverConfig.geminiApiKey) {
+    throw new Error('La voz de Ramiro no esta disponible en el servidor.');
+  }
+
+  const ai = new GoogleGenAI({
+    apiKey: serverConfig.geminiApiKey,
+    httpOptions: {
+      apiVersion: 'v1alpha',
+    },
+  });
+
+  const response = await ai.models.generateContent({
+    model: serverConfig.geminiLiveModel,
+    contents: text,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: 'Puck',
+          },
+        },
+      },
+    },
+  });
+
+  const audioPart = response.candidates?.[0]?.content?.parts?.find(
+    (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
+  );
+
+  if (!audioPart?.inlineData?.data) {
+    throw new Error('Gemini no devolvio audio para el aviso de cocina.');
+  }
+
+  return {
+    audioBase64: audioPart.inlineData.data,
+    mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
+    sampleRate: 24_000,
+  };
+}
 
 const runGeminiLiveDiagnostics = async () => {
   if (!serverConfig.geminiApiKey) {
@@ -611,6 +657,17 @@ app.delete('/api/orders/served', requireKitchenAuth, async (_request, response) 
   try {
     const orders = await clearServedOrders();
     response.json(orders);
+  } catch (error) {
+    const serviceError = toServiceError(error);
+    response.status(serviceError.status).json({ message: serviceError.message });
+  }
+});
+
+app.post('/api/kitchen/announce', requireKitchenAuth, async (request, response) => {
+  try {
+    const { text } = kitchenAnnouncementSchema.parse(request.body);
+    const payload = await synthesizeKitchenAnnouncement(text);
+    response.json(payload);
   } catch (error) {
     const serviceError = toServiceError(error);
     response.status(serviceError.status).json({ message: serviceError.message });

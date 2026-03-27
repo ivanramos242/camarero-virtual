@@ -132,6 +132,13 @@ export async function clearServedOrdersOnApi() {
   });
 }
 
+export async function synthesizeKitchenAnnouncementOnApi(text: string) {
+  return request<{ audioBase64: string; mimeType: string; sampleRate: number }>('/api/kitchen/announce', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function fetchKitchenSession() {
   return request<SessionStatusResponse>('/api/auth/session', {
     method: 'GET',
