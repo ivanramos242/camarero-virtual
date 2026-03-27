@@ -266,7 +266,6 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const announcementQueueRef = useRef(Promise.resolve());
-  const prefetchQueueRef = useRef(Promise.resolve());
   const activeAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string; sampleRate: number }>>(new Map());
 
@@ -398,16 +397,6 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
     [playBeep],
   );
 
-  const prefetchAnnouncement = useCallback(async (order: PersistedOrder) => {
-    const cacheKey = `${order.id}:${order.lastUpdatedAt}`;
-    if (audioCacheRef.current.has(cacheKey)) {
-      return;
-    }
-
-    const audioPayload = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
-    audioCacheRef.current.set(cacheKey, audioPayload);
-  }, []);
-
   useEffect(() => {
     const currentIds = new Set(orders.map((order) => order.id));
     if (seenOrderIdsRef.current.size === 0) {
@@ -431,22 +420,6 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
       }
     })();
   }, [announcementsEnabled, orders, speakOrder]);
-
-  useEffect(() => {
-    const ordersToPrefetch = orders
-      .filter((order) => order.status !== 'served')
-      .sort((left, right) => orderSortValue(left) - orderSortValue(right))
-      .slice(0, 8);
-
-    for (const order of ordersToPrefetch) {
-      const cacheKey = `${order.id}:${order.lastUpdatedAt}`;
-      if (audioCacheRef.current.has(cacheKey)) {
-        continue;
-      }
-
-      prefetchQueueRef.current = prefetchQueueRef.current.then(() => prefetchAnnouncement(order)).catch(() => undefined);
-    }
-  }, [orders, prefetchAnnouncement]);
 
   useEffect(
     () => () => {

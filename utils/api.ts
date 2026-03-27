@@ -40,14 +40,17 @@ async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise
 
   if (!response.ok) {
     let message = 'La solicitud no se pudo completar.';
+    const rawBody = await response.text();
 
     try {
-      const payload = (await response.json()) as { message?: string };
+      const payload = JSON.parse(rawBody) as { message?: string };
       if (payload.message) {
         message = payload.message;
       }
     } catch {
-      if (response.statusText) {
+      if (rawBody.trim()) {
+        message = rawBody.trim();
+      } else if (response.statusText) {
         message = response.statusText;
       }
     }
