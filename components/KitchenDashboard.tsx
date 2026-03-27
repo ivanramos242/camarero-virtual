@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BadgeCheck,
   ChefHat,
@@ -16,6 +16,8 @@ import {
   Trash2,
   TriangleAlert,
   Users,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 
@@ -183,6 +185,22 @@ function orderSortValue(order: PersistedOrder) {
   return getOrderAgeMinutes(order.createdAt) * -1;
 }
 
+function buildOrderAnnouncement(order: PersistedOrder) {
+  const itemsSummary = order.items
+    .map((item) => `${item.quantity} ${item.name}`)
+    .join(', ');
+
+  return [
+    `Nuevo pedido en mesa ${order.tableNumber}.`,
+    order.clientName ? `Cliente ${order.clientName}.` : null,
+    `${order.diners} comensales.`,
+    `Total de ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos.`,
+    itemsSummary ? `Pedido: ${itemsSummary}.` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
 const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   orders,
   restaurantName,
@@ -197,6 +215,97 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   onRefresh,
 }) => {
   const [isServedModalOpen, setIsServedModalOpen] = useState(false);
+  const [announcementsEnabled, setAnnouncementsEnabled] = useState(true);
+  const seenOrderIdsRef = useRef<Set<string>>(new Set());
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const playBeep = useCallback(async () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const context = audioContextRef.current ?? new AudioContextClass();
+    audioContextRef.current = context;
+
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gainNode = context.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, now);
+    oscillator.frequency.exponentialRampToValueAtTime(660, now + 0.18);
+    gainNode.gain.setValueAtTime(0.001, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.08, now + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.24);
+  }, []);
+
+  const speakOrder = useCallback(
+    async (order: PersistedOrder) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        return;
+      }
+
+      await playBeep();
+
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(buildOrderAnnouncement(order));
+      utterance.lang = 'es-ES';
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+
+      const preferredVoice =
+        window.speechSynthesis
+          .getVoices()
+          .find((voice) => voice.lang.toLowerCase().startsWith('es') && /male|jorge|enrique|antonio/i.test(voice.name)) ??
+        window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith('es'));
+
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    },
+    [playBeep],
+  );
+
+  useEffect(() => {
+    const currentIds = new Set(orders.map((order) => order.id));
+    if (seenOrderIdsRef.current.size === 0) {
+      seenOrderIdsRef.current = currentIds;
+      return;
+    }
+
+    const newOrders = orders
+      .filter((order) => !seenOrderIdsRef.current.has(order.id))
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+
+    seenOrderIdsRef.current = currentIds;
+
+    if (!announcementsEnabled || newOrders.length === 0) {
+      return;
+    }
+
+    void (async () => {
+      for (const order of newOrders) {
+        await speakOrder(order);
+      }
+    })();
+  }, [announcementsEnabled, orders, speakOrder]);
 
   const activeColumns = useMemo(
     () =>
@@ -259,6 +368,18 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAnnouncementsEnabled((current) => !current)}
+                className={`inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                  announcementsEnabled
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                    : 'border-stone-300 bg-white text-stone-700 hover:bg-stone-100'
+                }`}
+              >
+                {announcementsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                {announcementsEnabled ? 'Callar a Ramiro' : 'Activar a Ramiro'}
+              </button>
               <button
                 type="button"
                 onClick={() => setIsServedModalOpen(true)}
@@ -404,10 +525,35 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                   </div>
 
                                   {order.syncState === 'mirror_failed' ? (
-                                    <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
-                                      Error sync
-                                    </span>
-                                  ) : null}
+                                    <div className="flex flex-col items-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          void speakOrder(order);
+                                        }}
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
+                                        title="Leer pedido"
+                                        aria-label="Leer pedido"
+                                      >
+                                        <Volume2 size={15} />
+                                      </button>
+                                      <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                                        Error sync
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        void speakOrder(order);
+                                      }}
+                                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
+                                      title="Leer pedido"
+                                      aria-label="Leer pedido"
+                                    >
+                                      <Volume2 size={15} />
+                                    </button>
+                                  )}
                                 </div>
 
                                 <div className="grid gap-px border-y border-stone-200 bg-stone-200 sm:grid-cols-2 xl:grid-cols-2">
