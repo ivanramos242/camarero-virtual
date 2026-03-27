@@ -189,15 +189,19 @@ function orderSortValue(order: PersistedOrder) {
 
 function buildOrderAnnouncement(order: PersistedOrder) {
   const itemsSummary = order.items
-    .map((item) => `${item.quantity} ${item.name}`)
+    .map((item) => `${item.quantity} de ${item.name}`)
     .join(', ');
+  const notesSummary = order.items
+    .filter((item) => item.notes)
+    .map((item) => `${item.name}: ${item.notes}`)
+    .join('. ');
 
   return [
-    `Nuevo pedido en mesa ${order.tableNumber}.`,
-    order.clientName ? `Cliente ${order.clientName}.` : null,
-    `${order.diners} comensales.`,
-    `Total de ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos.`,
-    itemsSummary ? `Pedido: ${itemsSummary}.` : null,
+    `Ojo cocina, entra pedido para la mesa ${order.tableNumber}.`,
+    order.clientName ? `A nombre de ${order.clientName}.` : null,
+    `${order.diners} comensales y ${order.items.reduce((sum, item) => sum + item.quantity, 0)} platos.`,
+    itemsSummary ? `Marchando: ${itemsSummary}.` : null,
+    notesSummary ? `Atentos a estas notas: ${notesSummary}.` : null,
   ]
     .filter(Boolean)
     .join(' ');
@@ -219,11 +223,13 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   const [isServedModalOpen, setIsServedModalOpen] = useState(false);
   const [announcementsEnabled, setAnnouncementsEnabled] = useState(true);
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
+  const [announcingOrderId, setAnnouncingOrderId] = useState<string | null>(null);
   const seenOrderIdsRef = useRef<Set<string>>(new Set());
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const announcementQueueRef = useRef(Promise.resolve());
   const activeAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioCacheRef = useRef<Map<string, { audioBase64: string; mimeType: string; sampleRate: number }>>(new Map());
 
   const playBeep = useCallback(async () => {
     if (typeof window === 'undefined') {
@@ -265,9 +271,17 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
         return;
       }
 
+      const cacheKey = `${order.id}:${order.lastUpdatedAt}`;
       const run = async () => {
+        setAnnouncingOrderId(order.id);
         await playBeep();
-        const { audioBase64, mimeType, sampleRate } = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
+        const cachedAudio = audioCacheRef.current.get(cacheKey);
+        const { audioBase64, mimeType, sampleRate } =
+          cachedAudio ?? (await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order)));
+
+        if (!cachedAudio) {
+          audioCacheRef.current.set(cacheKey, { audioBase64, mimeType, sampleRate });
+        }
         setAnnouncementError(null);
 
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -292,6 +306,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
             if (activeAudioElementRef.current === audio) {
               activeAudioElementRef.current = null;
             }
+            setAnnouncingOrderId((current) => (current === order.id ? null : current));
           };
           return;
         }
@@ -317,6 +332,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
           if (activeSourceRef.current === source) {
             activeSourceRef.current = null;
           }
+          setAnnouncingOrderId((current) => (current === order.id ? null : current));
           source.disconnect();
         };
       };
@@ -326,6 +342,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
         try {
           await run();
         } catch (error) {
+          setAnnouncingOrderId((current) => (current === order.id ? null : current));
           setAnnouncementError(error instanceof Error ? error.message : 'Ramiro no ha podido leer este pedido.');
         }
         return;
@@ -334,6 +351,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
       announcementQueueRef.current = announcementQueueRef.current
         .then(run)
         .catch((error) => {
+          setAnnouncingOrderId((current) => (current === order.id ? null : current));
           setAnnouncementError(error instanceof Error ? error.message : 'Ramiro no ha podido leer un pedido nuevo.');
         });
       await announcementQueueRef.current;
@@ -378,6 +396,8 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
         activeAudioElementRef.current.src = '';
         activeAudioElementRef.current = null;
       }
+
+      setAnnouncingOrderId(null);
 
       if (audioContextRef.current) {
         void audioContextRef.current.close();
@@ -563,6 +583,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                           {column.orders.map((order) => {
                             const nextAction = nextActionByStatus[order.status];
                             const isUpdating = pendingOrderIds.includes(order.id);
+                            const isAnnouncing = announcingOrderId === order.id;
                             const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
                             const priority = getOrderPriority(order);
                             const PriorityIcon = priority.icon;
@@ -613,11 +634,12 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                         onClick={() => {
                                           void speakOrder(order, true);
                                         }}
+                                        disabled={isAnnouncing}
                                         className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
                                         title="Leer pedido"
                                         aria-label="Leer pedido"
                                       >
-                                        <Volume2 size={15} />
+                                        {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <Volume2 size={15} />}
                                       </button>
                                       <span className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
                                         Error sync
@@ -629,11 +651,12 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                       onClick={() => {
                                         void speakOrder(order, true);
                                       }}
+                                      disabled={isAnnouncing}
                                       className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
                                       title="Leer pedido"
                                       aria-label="Leer pedido"
                                     >
-                                      <Volume2 size={15} />
+                                      {isAnnouncing ? <Loader2 size={15} className="animate-spin" /> : <Volume2 size={15} />}
                                     </button>
                                   )}
                                 </div>
