@@ -222,6 +222,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const announcementQueueRef = useRef(Promise.resolve());
+  const activeAudioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const playBeep = useCallback(async () => {
     if (typeof window === 'undefined') {
@@ -265,19 +266,9 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
 
       const run = async () => {
         await playBeep();
-        const { audioBase64 } = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
+        const { audioBase64, mimeType, sampleRate } = await synthesizeKitchenAnnouncementOnApi(buildOrderAnnouncement(order));
 
         const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioContextClass) {
-          return;
-        }
-
-        const context = audioContextRef.current ?? new AudioContextClass({ sampleRate: 24_000 });
-        audioContextRef.current = context;
-
-        if (context.state === 'suspended') {
-          await context.resume();
-        }
 
         if (activeSourceRef.current) {
           activeSourceRef.current.stop();
@@ -285,7 +276,36 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
           activeSourceRef.current = null;
         }
 
-        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioBase64), context, 24_000);
+        if (activeAudioElementRef.current) {
+          activeAudioElementRef.current.pause();
+          activeAudioElementRef.current.src = '';
+          activeAudioElementRef.current = null;
+        }
+
+        if (!mimeType.toLowerCase().includes('pcm')) {
+          const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+          activeAudioElementRef.current = audio;
+          await audio.play();
+          audio.onended = () => {
+            if (activeAudioElementRef.current === audio) {
+              activeAudioElementRef.current = null;
+            }
+          };
+          return;
+        }
+
+        if (!AudioContextClass) {
+          return;
+        }
+
+        const context = audioContextRef.current ?? new AudioContextClass({ sampleRate });
+        audioContextRef.current = context;
+
+        if (context.state === 'suspended') {
+          await context.resume();
+        }
+
+        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioBase64), context, sampleRate);
         const source = context.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(context.destination);
@@ -341,6 +361,12 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
         activeSourceRef.current.stop();
         activeSourceRef.current.disconnect();
         activeSourceRef.current = null;
+      }
+
+      if (activeAudioElementRef.current) {
+        activeAudioElementRef.current.pause();
+        activeAudioElementRef.current.src = '';
+        activeAudioElementRef.current = null;
       }
 
       if (audioContextRef.current) {
