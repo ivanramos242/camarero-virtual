@@ -725,13 +725,13 @@ app.post('/api/auth/login', (request, response) => {
   }
 
   const sessionId = crypto.randomUUID();
-  kitchenSessions.set(sessionId, Date.now() + serverConfig.sessionDurationMs);
+  kitchenSessions.set(sessionId, Date.now() + serverConfig.kitchenSessionDurationMs);
 
   response.cookie(serverConfig.sessionCookieName, sessionId, {
     httpOnly: true,
     sameSite: 'lax',
     secure: serverConfig.isProduction,
-    maxAge: serverConfig.sessionDurationMs,
+    maxAge: serverConfig.kitchenSessionDurationMs,
   });
 
   response.status(204).end();
@@ -766,13 +766,13 @@ app.post('/api/admin/auth/login', (request, response) => {
   }
 
   const sessionId = crypto.randomUUID();
-  adminSessions.set(sessionId, Date.now() + serverConfig.sessionDurationMs);
+  adminSessions.set(sessionId, Date.now() + serverConfig.adminSessionDurationMs);
 
   response.cookie(serverConfig.adminSessionCookieName, sessionId, {
     httpOnly: true,
     sameSite: 'lax',
     secure: serverConfig.isProduction,
-    maxAge: serverConfig.sessionDurationMs,
+    maxAge: serverConfig.adminSessionDurationMs,
   });
 
   response.status(204).end();
