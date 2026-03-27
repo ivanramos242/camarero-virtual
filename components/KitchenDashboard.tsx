@@ -388,13 +388,10 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                         <PriorityIcon size={14} />
                                         {priority.label}
                                       </span>
+                                      <span className="text-xs font-medium text-stone-500">#{order.id.slice(0, 8)}</span>
                                     </div>
 
-                                    <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600">
-                                      <span className="inline-flex items-center gap-1.5">
-                                        <ReceiptText size={15} />
-                                        #{order.id.slice(0, 8)}
-                                      </span>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-600">
                                       <span className="inline-flex items-center gap-1.5">
                                         <Users size={15} />
                                         {order.diners} comensales
@@ -413,27 +410,27 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                   ) : null}
                                 </div>
 
-                                <div className="grid gap-px border-y border-stone-200 bg-stone-200 sm:grid-cols-2">
-                                  <div className="space-y-1 bg-white px-4 py-3">
-                                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Cliente</p>
-                                    <p className="text-sm font-medium text-stone-900">{order.clientName || 'Sin nombre'}</p>
+                                <div className="grid gap-px border-y border-stone-200 bg-stone-200 sm:grid-cols-2 xl:grid-cols-4">
+                                  <div className="bg-white px-4 py-2.5 text-sm">
+                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Cliente</span>
+                                    <span className="ml-2 font-medium text-stone-900">{order.clientName || 'Sin nombre'}</span>
                                   </div>
-                                  <div className="space-y-1 bg-white px-4 py-3">
-                                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Entrada</p>
-                                    <p className="text-sm font-medium text-stone-900">{formatDateTime(order.createdAt)}</p>
+                                  <div className="bg-white px-4 py-2.5 text-sm">
+                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Entrada</span>
+                                    <span className="ml-2 font-medium text-stone-900">{formatDateTime(order.createdAt)}</span>
                                   </div>
-                                  <div className="space-y-1 bg-white px-4 py-3">
-                                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Canal</p>
-                                    <p className="text-sm font-medium text-stone-900">{order.source === 'voice' ? 'Voz' : 'Manual'}</p>
+                                  <div className="bg-white px-4 py-2.5 text-sm">
+                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Canal</span>
+                                    <span className="ml-2 font-medium text-stone-900">{order.source === 'voice' ? 'Voz' : 'Manual'}</span>
                                   </div>
-                                  <div className="space-y-1 bg-white px-4 py-3">
-                                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Importe</p>
-                                    <p className="text-sm font-medium text-stone-900">{order.totalPrice.toFixed(2)} €</p>
+                                  <div className="bg-white px-4 py-2.5 text-sm">
+                                    <span className="text-xs font-medium uppercase tracking-[0.08em] text-stone-500">Importe</span>
+                                    <span className="ml-2 font-medium text-stone-900">{order.totalPrice.toFixed(2)} €</span>
                                   </div>
                                 </div>
 
-                                <div className="border-b border-stone-200 bg-white px-4 py-3">
-                                  <div className="flex flex-wrap gap-3 text-sm text-stone-600">
+                                <div className="border-b border-stone-200 bg-white px-4 py-2.5">
+                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
                                     {order.customerEmail ? (
                                       <span className="inline-flex items-center gap-1.5">
                                         <Mail size={15} />
