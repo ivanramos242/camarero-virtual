@@ -600,7 +600,7 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
 
             {!isLoading && visibleBoardOrderCount > 0 ? (
               <div className="overflow-x-auto pb-3">
-                <div className="flex min-h-[calc(100vh-290px)] snap-x snap-mandatory items-stretch gap-5 pr-2">
+                <div className="flex min-h-[calc(100vh-290px)] snap-x snap-mandatory items-stretch gap-5">
                   {activeColumns.map((column) => {
                     const style = statusStyles[column.status];
                     const ColumnIcon = style.icon;
