@@ -48,7 +48,6 @@ import { createTable, deleteTable, getTableQr, getTablesQrBatch, listTables, toT
 const app = express();
 const kitchenSessions = new Map<string, number>();
 const adminSessions = new Map<string, number>();
-const kitchenAnnouncementCache = new Map<string, { payload: { audioBase64: string; mimeType: string; sampleRate: number }; expiresAt: number }>();
 
 const orderStatusValues = ['pending', 'cooking', 'ready', 'served'] as const satisfies readonly OrderStatus[];
 const allowedUploadMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -282,20 +281,6 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
   voice: serverConfig.openAiVoice,
 });
 
-function buildKitchenAnnouncementPrompt(text: string) {
-  return [
-    'Lee este aviso para cocina en espanol de Espana.',
-    'Habla con energia, picardia, variedad y personalidad.',
-    'Menos tranquilo y mas vivo, como un companero espabilado de cocina con humor castizo.',
-    'Usa un tono divertido, espontaneo y algo canalla, sin sonar artificial.',
-    'Mete altibajos naturales de entonacion, con subidas y bajadas de tono y pequenas pausas expresivas.',
-    'Da enfasis a lo importante del pedido y cambia un poco el color de una frase a otra.',
-    'Ritmo agil, claro y directo, pero con gracia y chispa.',
-    'No inventes nada ni anadas informacion.',
-    `Aviso: ${text}`,
-  ].join(' ');
-}
-
 function getErrorMessage(error: unknown) {
   return error instanceof Error && error.message.trim() ? error.message : 'No se pudo generar la locucion de cocina.';
 }
@@ -305,16 +290,6 @@ async function synthesizeKitchenAnnouncement(text: string) {
     throw new Error('La voz de Ramiro no esta disponible en el servidor.');
   }
 
-  const cacheKey = crypto.createHash('sha256').update(`${serverConfig.geminiKitchenTtsModel}:Puck:${text}`).digest('hex');
-  const cached = kitchenAnnouncementCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.payload;
-  }
-
-  if (cached) {
-    kitchenAnnouncementCache.delete(cacheKey);
-  }
-
   const ai = new GoogleGenAI({
     apiKey: serverConfig.geminiApiKey,
     httpOptions: {
@@ -322,57 +297,34 @@ async function synthesizeKitchenAnnouncement(text: string) {
     },
   });
 
-  const generateAnnouncement = async (contents: string) => {
-    const response = await ai.models.generateContent({
-      model: serverConfig.geminiKitchenTtsModel,
-      contents,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: 'Puck',
-            },
+  const response = await ai.models.generateContent({
+    model: serverConfig.geminiKitchenTtsModel,
+    contents: text,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: 'Puck',
           },
         },
       },
-    });
-
-    const audioPart = response.candidates?.[0]?.content?.parts?.find(
-      (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
-    );
-
-    if (!audioPart?.inlineData?.data) {
-      throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
-    }
-
-    return {
-      audioBase64: audioPart.inlineData.data,
-      mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
-      sampleRate: 24_000,
-    };
-  };
-
-  let payload: { audioBase64: string; mimeType: string; sampleRate: number };
-  try {
-    payload = await generateAnnouncement(buildKitchenAnnouncementPrompt(text));
-  } catch (richPromptError) {
-    console.error('[kitchen-voice] Fallo con prompt expresivo, se intentara fallback simple:', richPromptError);
-
-    try {
-      payload = await generateAnnouncement(text);
-    } catch (fallbackError) {
-      console.error('[kitchen-voice] Fallo tambien el fallback simple de cocina:', fallbackError);
-      throw new Error(getErrorMessage(fallbackError));
-    }
-  }
-
-  kitchenAnnouncementCache.set(cacheKey, {
-    payload,
-    expiresAt: Date.now() + 1000 * 60 * 30,
+    },
   });
 
-  return payload;
+  const audioPart = response.candidates?.[0]?.content?.parts?.find(
+    (part): part is typeof part & { inlineData: { data: string; mimeType?: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
+  );
+
+  if (!audioPart?.inlineData?.data) {
+    throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
+  }
+
+  return {
+    audioBase64: audioPart.inlineData.data,
+    mimeType: audioPart.inlineData.mimeType || 'audio/pcm;rate=24000',
+    sampleRate: 24_000,
+  };
 }
 
 const runGeminiLiveDiagnostics = async () => {
