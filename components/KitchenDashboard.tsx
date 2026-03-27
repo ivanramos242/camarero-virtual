@@ -527,7 +527,13 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                 <ChefHat size={18} />
               </span>
               <div>
-                <h1 className="text-lg font-semibold tracking-tight text-stone-950">{kitchenName}</h1>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <h1 className="text-lg font-semibold tracking-tight text-stone-950">{kitchenName}</h1>
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-300 bg-white px-2.5 py-1 text-xs font-medium text-stone-700">
+                    <Clock3 size={13} />
+                    Media hasta listo {stats.averageReadyMinutes} min
+                  </span>
+                </div>
                 <p className="text-sm text-stone-600">{restaurantName}</p>
               </div>
             </div>
@@ -571,25 +577,6 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
               </button>
             </div>
           </header>
-
-          <div className="grid gap-px border-b border-stone-300 bg-stone-300 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="bg-stone-50 px-4 py-4 sm:px-6">
-              <p className="text-sm text-stone-500">Activos</p>
-              <p className="mt-1 text-3xl font-semibold text-stone-950">{stats.activeOrders}</p>
-            </div>
-            <div className="bg-stone-50 px-4 py-4 sm:px-6">
-              <p className="text-sm text-stone-500">Pendientes de confirmar</p>
-              <p className="mt-1 text-3xl font-semibold text-amber-700">{stats.pendingOrders}</p>
-            </div>
-            <div className="bg-stone-50 px-4 py-4 sm:px-6">
-              <p className="text-sm text-stone-500">Listos para salir</p>
-              <p className="mt-1 text-3xl font-semibold text-emerald-700">{stats.readyOrders}</p>
-            </div>
-            <div className="bg-stone-50 px-4 py-4 sm:px-6">
-              <p className="text-sm text-stone-500">Media hasta listo</p>
-              <p className="mt-1 text-3xl font-semibold text-stone-950">{stats.averageReadyMinutes} min</p>
-            </div>
-          </div>
 
           {errorMessage || announcementError ? (
             <div className="border-b border-stone-300 bg-white px-4 py-3 text-sm text-red-700 sm:px-6">
