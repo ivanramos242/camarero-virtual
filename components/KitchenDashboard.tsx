@@ -422,26 +422,6 @@ const KitchenDashboard: React.FC<KitchenDashboardProps> = ({
                                   </div>
                                 </div>
 
-                                <div className="border-b border-stone-200 bg-white px-4 py-2.5">
-                                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
-                                    {order.customerEmail ? (
-                                      <span className="inline-flex items-center gap-1.5">
-                                        <Mail size={15} />
-                                        {order.customerEmail}
-                                      </span>
-                                    ) : null}
-                                    <span className="inline-flex items-center gap-1.5">
-                                      <Clock3 size={15} />
-                                      Pedido {formatTime(order.createdAt)}
-                                    </span>
-                                    <span className="inline-flex items-center gap-1.5 font-medium text-stone-800">
-                                      {priority.ageMinutes} min abiertos
-                                    </span>
-                                    {order.acceptedAt ? <span>Aceptado {formatTime(order.acceptedAt)}</span> : null}
-                                    {order.readyAt ? <span>Listo {formatTime(order.readyAt)}</span> : null}
-                                  </div>
-                                </div>
-
                                 <div className="bg-stone-50 px-4 py-4">
                                   <div className="space-y-3">
                                     {order.items.map((item) => (
