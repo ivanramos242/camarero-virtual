@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Leaf, Plus, Wheat } from 'lucide-react';
+import { AlertCircle, Grid2x2, Leaf, List, Plus, Wheat } from 'lucide-react';
 
 import type { MenuItem } from '../types';
 
@@ -10,6 +10,7 @@ interface MenuExplorerProps {
 
 const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
   const [activeCategory, setActiveCategory] = useState('Todos');
+  const [mobileView, setMobileView] = useState<'grid' | 'list'>('grid');
   const categoryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const categories = useMemo(() => ['Todos', ...Array.from(new Set(menu.map((item) => item.category)))], [menu]);
@@ -72,54 +73,122 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
         ))}
       </div>
 
-      <div className="grid gap-4 p-4 sm:p-5 md:grid-cols-2 xl:grid-cols-3">
-        {filteredMenu.map((item) => (
-          <article key={item.id} className="overflow-hidden rounded-xl border border-stone-200 bg-white">
-            {item.imageUrl ? (
-              <img src={item.imageUrl} alt={item.name} className="h-36 w-full object-cover sm:h-40" />
-            ) : (
-              <div className="flex h-36 items-center justify-center bg-stone-100 px-4 text-center text-sm text-stone-400 sm:h-40">{item.category}</div>
-            )}
+      <div className="border-b border-stone-200 px-4 py-3 sm:hidden">
+        <div className="grid grid-cols-2 gap-2 rounded-lg bg-stone-100 p-1">
+          <button
+            type="button"
+            onClick={() => setMobileView('grid')}
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition ${
+              mobileView === 'grid' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+            }`}
+            aria-pressed={mobileView === 'grid'}
+          >
+            <Grid2x2 size={16} />
+            Cuadrícula
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileView('list')}
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-medium transition ${
+              mobileView === 'list' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
+            }`}
+            aria-pressed={mobileView === 'list'}
+          >
+            <List size={16} />
+            Lista
+          </button>
+        </div>
+      </div>
 
-            <div className="space-y-4 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="text-base font-semibold text-stone-900">{item.name}</h3>
-                  <p className="mt-1 text-sm leading-6 text-stone-500">{item.description}</p>
-                </div>
-                <span className="shrink-0 text-sm font-medium text-stone-700">{item.price.toFixed(2)} €</span>
-              </div>
+      <div
+        className={`p-4 sm:p-5 ${
+          mobileView === 'grid'
+            ? 'grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3'
+            : 'flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-4 xl:grid-cols-3'
+        }`}
+      >
+        {filteredMenu.map((item) => {
+          const isVegan = item.dietary.some((diet) => diet.toLowerCase().includes('veg'));
+          const secondaryDietary = item.dietary.filter((diet) => !diet.toLowerCase().includes('veg'));
 
-              <div className="flex flex-wrap gap-2">
-                {item.dietary.map((diet) => (
-                  <span
-                    key={diet}
-                    className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800"
+          return (
+            <article
+              key={item.id}
+              className={`overflow-hidden rounded-xl border border-stone-200 bg-white ${
+                mobileView === 'list' ? 'flex items-stretch sm:block' : ''
+              }`}
+            >
+              <div className={`relative overflow-hidden bg-stone-100 ${mobileView === 'list' ? 'w-28 shrink-0 sm:w-auto' : ''}`}>
+                {item.imageUrl ? (
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className={`w-full object-cover ${mobileView === 'grid' ? 'h-24 sm:h-40' : 'h-full min-h-28 sm:h-40'}`}
+                  />
+                ) : (
+                  <div
+                    className={`flex items-center justify-center bg-stone-100 px-3 text-center text-xs text-stone-400 sm:text-sm ${
+                      mobileView === 'grid' ? 'h-24 sm:h-40' : 'h-full min-h-28 sm:h-40'
+                    }`}
                   >
-                    {renderDietIcon(diet)}
-                    {diet}
+                    {item.category}
+                  </div>
+                )}
+
+                {isVegan ? (
+                  <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/92 px-2 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur">
+                    <Leaf size={12} />
+                    Vegano
                   </span>
-                ))}
+                ) : null}
               </div>
 
-              {item.allergens.length > 0 ? (
-                <p className="inline-flex items-center gap-1 text-xs text-stone-500">
-                  <AlertCircle size={12} />
-                  Alérgenos: {item.allergens.join(', ')}
-                </p>
-              ) : null}
+              <div className={`p-3 sm:p-4 ${mobileView === 'grid' ? 'space-y-3' : 'flex min-w-0 flex-1 flex-col justify-between space-y-3'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className={`font-semibold text-stone-900 ${mobileView === 'grid' ? 'text-sm leading-5 sm:text-base' : 'text-sm sm:text-base'}`}>
+                      {item.name}
+                    </h3>
+                    <p className="mt-1 line-clamp-2 text-xs leading-4 text-stone-500 sm:text-sm sm:leading-6">{item.description}</p>
+                  </div>
+                  <span className="shrink-0 text-sm font-medium text-stone-700">{item.price.toFixed(2)} €</span>
+                </div>
 
-              <button
-                type="button"
-                onClick={() => onAddItem(item)}
-                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 py-3 text-sm font-medium text-stone-800 transition hover:bg-stone-50"
-              >
-                <Plus size={16} />
-                Añadir al pedido
-              </button>
-            </div>
-          </article>
-        ))}
+                {secondaryDietary.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {secondaryDietary.map((diet) => (
+                      <span
+                        key={diet}
+                        className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800"
+                      >
+                        {renderDietIcon(diet)}
+                        {diet}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {item.allergens.length > 0 ? (
+                  <p className="inline-flex items-center gap-1 text-xs text-stone-500">
+                    <AlertCircle size={12} />
+                    Alérgenos: {item.allergens.join(', ')}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => onAddItem(item)}
+                  className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 text-sm font-medium text-stone-800 transition hover:bg-stone-50 ${
+                    mobileView === 'grid' ? 'min-h-10 py-2.5' : 'min-h-11 py-3'
+                  }`}
+                >
+                  <Plus size={16} />
+                  Añadir al pedido
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
