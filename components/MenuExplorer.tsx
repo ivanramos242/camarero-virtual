@@ -82,9 +82,10 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
               mobileView === 'grid' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
             }`}
             aria-pressed={mobileView === 'grid'}
+            aria-label="Vista en cuadricula"
+            title="Vista en cuadricula"
           >
             <Grid2x2 size={16} />
-            Cuadricula
           </button>
           <button
             type="button"
@@ -93,9 +94,10 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
               mobileView === 'list' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-600'
             }`}
             aria-pressed={mobileView === 'list'}
+            aria-label="Vista en lista"
+            title="Vista en lista"
           >
             <List size={16} />
-            Lista
           </button>
         </div>
       </div>
