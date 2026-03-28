@@ -13,6 +13,7 @@ export interface MenuItem {
   dietary: string[];
   available: boolean;
   ingredients: string[];
+  voiceAliases?: string[];
   imageUrl?: string | null;
 }
 
@@ -154,6 +155,7 @@ export interface MenuItemInput {
   dietary?: string[];
   available?: boolean;
   ingredients?: string[];
+  voiceAliases?: string[];
   imageUrl?: string | null;
 }
 
@@ -241,5 +243,42 @@ export interface VoiceDiagnosticsResponse {
   liveCheck: {
     ok: boolean;
     message: string;
+  };
+}
+
+export interface VoiceMatchCandidate {
+  menuItemId: string;
+  name: string;
+  confidence: number;
+  score: number;
+  matchedOn: string;
+}
+
+export interface VoiceTraceEntry {
+  id: string;
+  timestamp: string;
+  tableNumber: string;
+  transcript: string;
+  assistantMessage: string;
+  toolCalls: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    result?: {
+      success?: boolean;
+      message?: string;
+      error?: string;
+      reason?: string;
+      requiresClarification?: boolean;
+      candidates?: VoiceMatchCandidate[];
+    };
+  }>;
+  resolution: {
+    action: 'add' | 'remove' | 'confirm' | 'unknown';
+    requiresClarification: boolean;
+    fallbackUsed: boolean;
+    mutatedCart: boolean;
+    confirmationPending: boolean;
+    reason?: string;
+    candidates: VoiceMatchCandidate[];
   };
 }

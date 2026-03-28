@@ -24,6 +24,7 @@ import type {
   TableQrResponse,
   TablesQrBatchResponse,
   UploadImageResponse,
+  VoiceTraceEntry,
   UpdateAdminSettingsRequest,
   UpdateAdminTableRequest,
   UpdateAdminTableStatusRequest,
@@ -44,6 +45,7 @@ import {
 import { clearServedOrders, createOrder, listOrders, seedLegacyOrdersFromSheetIfNeeded, toServiceError, updateOrderStatus } from './orders.js';
 import { appStore } from './store.js';
 import { createTable, deleteTable, getTableQr, getTablesQrBatch, listTables, toTablesServiceError, updateTable, updateTableStatus } from './tables.js';
+import { listVoiceTraces, recordVoiceTrace } from './voice-traces.js';
 
 const app = express();
 const kitchenSessions = new Map<string, number>();
@@ -103,6 +105,7 @@ const menuItemSchema = z.object({
   dietary: z.array(z.string().trim().min(1).max(40)).optional(),
   available: z.coerce.boolean().optional(),
   ingredients: z.array(z.string().trim().min(1).max(80)).optional(),
+  voiceAliases: z.array(z.string().trim().min(1).max(80)).optional(),
   imageUrl: menuImageUrlSchema.optional(),
 });
 
@@ -149,6 +152,47 @@ const adminSettingsSchema = z.object({
   showWifiPopup: z.coerce.boolean(),
   wifiSsid: z.string().trim().max(120),
   wifiPassword: z.string().trim().max(120),
+});
+
+const voiceMatchCandidateSchema = z.object({
+  menuItemId: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(160),
+  confidence: z.coerce.number().min(0).max(1),
+  score: z.coerce.number().min(0).max(500),
+  matchedOn: z.string().trim().min(1).max(120),
+});
+
+const voiceTraceSchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  timestamp: z.string().trim().min(1).max(80),
+  tableNumber: z.string().trim().min(1).max(16),
+  transcript: z.string().trim().max(1500),
+  assistantMessage: z.string().trim().max(1500),
+  toolCalls: z.array(
+    z.object({
+      name: z.string().trim().min(1).max(80),
+      args: z.record(z.string(), z.unknown()),
+      result: z
+        .object({
+          success: z.boolean().optional(),
+          message: z.string().trim().max(1500).optional(),
+          error: z.string().trim().max(1500).optional(),
+          reason: z.string().trim().max(120).optional(),
+          requiresClarification: z.boolean().optional(),
+          candidates: z.array(voiceMatchCandidateSchema).max(3).optional(),
+        })
+        .optional(),
+    }),
+  ),
+  resolution: z.object({
+    action: z.enum(['add', 'remove', 'confirm', 'unknown']),
+    requiresClarification: z.boolean(),
+    fallbackUsed: z.boolean(),
+    mutatedCart: z.boolean(),
+    confirmationPending: z.boolean(),
+    reason: z.string().trim().max(120).optional(),
+    candidates: z.array(voiceMatchCandidateSchema).max(3),
+  }),
 });
 
 const uploadsStorage = multer.diskStorage({
@@ -673,6 +717,18 @@ app.get('/api/debug/voice', async (_request, response) => {
   }
 });
 
+app.post('/api/voice/trace', (request, response) => {
+  try {
+    const payload = voiceTraceSchema.parse(request.body) as VoiceTraceEntry;
+    recordVoiceTrace(payload);
+    response.status(204).end();
+  } catch (error) {
+    response.status(400).json({
+      message: error instanceof Error ? error.message : 'La traza de voz no es valida.',
+    });
+  }
+});
+
 app.get('/api/menu', async (_request, response) => {
   const menu = await getMenu();
   response.json(menu);
@@ -967,6 +1023,10 @@ app.get('/api/admin/orders', requireAdminAuth, async (_request, response) => {
 
 app.get('/api/admin/settings', requireAdminAuth, async (_request, response) => {
   response.json(await getAdminSettings());
+});
+
+app.get('/api/admin/voice-traces', requireAdminAuth, (_request, response) => {
+  response.json(listVoiceTraces());
 });
 
 app.patch('/api/admin/settings', requireAdminAuth, async (request, response) => {

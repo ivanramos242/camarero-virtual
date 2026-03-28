@@ -1,9 +1,9 @@
 ﻿
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, ClipboardList, Copy, Eye, Loader2, LogOut, Pencil, Plus, Printer, QrCode, RefreshCcw, ShieldCheck, Trash2, X } from 'lucide-react';
-import type { AdminSettings, AdminTable, CreateAdminTableRequest, CreateMenuItemRequest, MenuItem, PersistedOrder, TableQrResponse, UpdateAdminSettingsRequest, UpdateAdminTableRequest, UpdateMenuItemRequest } from '../types';
+import type { AdminSettings, AdminTable, CreateAdminTableRequest, CreateMenuItemRequest, MenuItem, PersistedOrder, TableQrResponse, UpdateAdminSettingsRequest, UpdateAdminTableRequest, UpdateMenuItemRequest, VoiceTraceEntry } from '../types';
 
-type MenuForm = { name: string; description: string; price: string; category: string; imageUrl: string; ingredients: string; allergens: string; dietary: string; available: boolean };
+type MenuForm = { name: string; description: string; price: string; category: string; imageUrl: string; ingredients: string; allergens: string; dietary: string; voiceAliases: string; available: boolean };
 type TableForm = { number: string; label: string };
 type SettingsForm = { showWifiPopup: boolean; wifiSsid: string; wifiPassword: string };
 type AdminSection = 'menu' | 'tables' | 'orders' | 'settings';
@@ -14,13 +14,16 @@ interface Props {
   orders: PersistedOrder[];
   tables: AdminTable[];
   settings: AdminSettings;
+  voiceTraces: VoiceTraceEntry[];
   menuLoading: boolean;
   ordersLoading: boolean;
   tablesLoading: boolean;
   settingsLoading: boolean;
+  voiceTracesLoading: boolean;
   menuError?: string | null;
   ordersError?: string | null;
   tablesError?: string | null;
+  voiceTracesError?: string | null;
   actionError?: string | null;
   actionSuccess?: string | null;
   isSaving: boolean;
@@ -41,6 +44,7 @@ interface Props {
   onRefreshOrders: () => void;
   onRefreshTables: () => void;
   onRefreshSettings: () => void;
+  onRefreshVoiceTraces: () => void;
   onSaveTable: (tableId: string | null, payload: CreateAdminTableRequest | UpdateAdminTableRequest) => Promise<void>;
   onDeleteTable: (tableId: string) => Promise<void>;
   onToggleTableStatus: (tableId: string, active: boolean) => Promise<void>;
@@ -51,12 +55,12 @@ interface Props {
   onLogout: () => void;
 }
 
-const emptyMenu: MenuForm = { name: '', description: '', price: '', category: '', imageUrl: '', ingredients: '', allergens: '', dietary: '', available: true };
+const emptyMenu: MenuForm = { name: '', description: '', price: '', category: '', imageUrl: '', ingredients: '', allergens: '', dietary: '', voiceAliases: '', available: true };
 const emptyTable: TableForm = { number: '', label: '' };
 const emptySettings: SettingsForm = { showWifiPopup: false, wifiSsid: '', wifiPassword: '' };
 const orderLabel: Record<PersistedOrder['status'], string> = { pending: 'Pendiente', cooking: 'En cocina', ready: 'Listo', served: 'Servido' };
 const toList = (value: string) => value.split(',').map((v) => v.trim()).filter(Boolean);
-const toMenuPayload = (form: MenuForm): CreateMenuItemRequest => ({ name: form.name.trim(), description: form.description.trim(), price: Number(form.price), category: form.category.trim(), imageUrl: form.imageUrl.trim() || null, ingredients: toList(form.ingredients), allergens: toList(form.allergens), dietary: toList(form.dietary), available: form.available });
+const toMenuPayload = (form: MenuForm): CreateMenuItemRequest => ({ name: form.name.trim(), description: form.description.trim(), price: Number(form.price), category: form.category.trim(), imageUrl: form.imageUrl.trim() || null, ingredients: toList(form.ingredients), allergens: toList(form.allergens), dietary: toList(form.dietary), voiceAliases: toList(form.voiceAliases), available: form.available });
 const toTablePayload = (form: TableForm): CreateAdminTableRequest => ({ number: form.number.trim(), label: form.label.trim() || undefined });
 
 export default function AdminDashboard(props: Props) {
@@ -72,7 +76,7 @@ export default function AdminDashboard(props: Props) {
 
   useEffect(() => {
     const item = props.menu.find((entry) => entry.id === selectedItemId);
-    setMenuForm(item ? { name: item.name, description: item.description, price: item.price.toFixed(2), category: item.category, imageUrl: item.imageUrl ?? '', ingredients: item.ingredients.join(', '), allergens: item.allergens.join(', '), dietary: item.dietary.join(', '), available: item.available } : emptyMenu);
+    setMenuForm(item ? { name: item.name, description: item.description, price: item.price.toFixed(2), category: item.category, imageUrl: item.imageUrl ?? '', ingredients: item.ingredients.join(', '), allergens: item.allergens.join(', '), dietary: item.dietary.join(', '), voiceAliases: (item.voiceAliases ?? []).join(', '), available: item.available } : emptyMenu);
   }, [props.menu, selectedItemId]);
 
   useEffect(() => {
@@ -113,6 +117,7 @@ export default function AdminDashboard(props: Props) {
             item.description,
             item.category,
             item.ingredients.join(' '),
+            (item.voiceAliases ?? []).join(' '),
             item.allergens.join(' '),
             item.dietary.join(' '),
           ]
@@ -291,6 +296,7 @@ export default function AdminDashboard(props: Props) {
                                     <InfoRow label="Ingredientes" value={item.ingredients.length ? item.ingredients.join(', ') : 'Sin definir'} />
                                     <InfoRow label="Alergenos" value={item.allergens.length ? item.allergens.join(', ') : 'Sin definir'} />
                                     <InfoRow label="Etiquetas" value={item.dietary.length ? item.dietary.join(', ') : 'Sin definir'} />
+                                    <InfoRow label="Alias voz" value={item.voiceAliases?.length ? item.voiceAliases.join(', ') : 'Sin definir'} />
                                     <InfoRow label="Orden" value={`${(item.sortOrder ?? index) + 1}`} />
                                   </div>
                                 </div>
@@ -438,6 +444,8 @@ export default function AdminDashboard(props: Props) {
                   <Input label="Ingredientes" value={menuForm.ingredients} onChange={(value) => setMenuForm((c) => ({ ...c, ingredients: value }))} placeholder="tomate, mozzarella" />
                   <Input label="Alergenos" value={menuForm.allergens} onChange={(value) => setMenuForm((c) => ({ ...c, allergens: value }))} placeholder="gluten, lacteos" />
                   <Input label="Etiquetas dietarias" value={menuForm.dietary} onChange={(value) => setMenuForm((c) => ({ ...c, dietary: value }))} placeholder="vegano, sin gluten" />
+                  <Input label="Alias de voz" value={menuForm.voiceAliases} onChange={(value) => setMenuForm((c) => ({ ...c, voiceAliases: value }))} placeholder="croquetas de jamon, tarta casera" />
+                  <p className="-mt-2 text-xs text-stone-500">Separa por comas las formas naturales en que suelen pedir este plato.</p>
                   <label className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-3"><div><p className="text-sm font-medium text-stone-800">Disponible en carta</p><p className="text-xs text-stone-500">Si lo desactivas, desaparece de la vista del cliente.</p></div><input type="checkbox" checked={menuForm.available} onChange={(e) => setMenuForm((c) => ({ ...c, available: e.target.checked }))} className="h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" /></label>
                   <div className="flex flex-wrap gap-2 pt-2"><PrimaryButton type="submit" disabled={!menuForm.name.trim() || !menuForm.category.trim() || !menuForm.price.trim() || props.isSaving} loading={props.isSaving}>{selectedItemId ? 'Guardar cambios' : 'Crear plato'}</PrimaryButton><SecondaryButton onClick={() => { setSelectedItemId(null); setMenuForm(emptyMenu); }}>Limpiar</SecondaryButton></div>
                 </form>
@@ -468,6 +476,38 @@ export default function AdminDashboard(props: Props) {
                   <SummaryRow label="Con email de valoracion" value={`${props.orders.filter((order) => order.reviewConsent && order.customerEmail).length}`} />
                   <div className="pt-2">
                     <PrimaryButton onClick={props.onRefreshOrders}>Actualizar pedidos</PrimaryButton>
+                  </div>
+                </div>
+                <div className="border-t border-stone-200 px-6 py-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-stone-900">Diagnostico de voz</h4>
+                      <p className="mt-1 text-xs text-stone-500">Ultimos turnos registrados para revisar dudas, matches y confirmaciones.</p>
+                    </div>
+                    <button type="button" onClick={props.onRefreshVoiceTraces} className="rounded-lg border border-stone-300 px-3 py-2 text-xs font-medium text-stone-700 transition hover:bg-stone-50">Actualizar</button>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {props.voiceTracesLoading ? <InlineLoader text="Cargando trazas" /> : null}
+                    {props.voiceTracesError ? <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{props.voiceTracesError}</p> : null}
+                    {!props.voiceTracesLoading && props.voiceTraces.length === 0 ? <p className="rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-xs text-stone-500">Todavia no hay trazas de voz registradas.</p> : null}
+                    {props.voiceTraces.slice(0, 8).map((trace) => (
+                      <article key={trace.id} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">Mesa {trace.tableNumber}</p>
+                            <p className="mt-1 text-sm font-medium text-stone-900">{trace.transcript || 'Sin transcript'}</p>
+                          </div>
+                          <span className={`rounded-md px-2 py-1 text-[11px] font-medium ${trace.resolution.requiresClarification ? 'bg-amber-100 text-amber-800' : trace.resolution.mutatedCart ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'}`}>{trace.resolution.requiresClarification ? 'Aclara' : trace.resolution.mutatedCart ? 'Aplicado' : 'Sin cambio'}</span>
+                        </div>
+                        {trace.assistantMessage ? <p className="mt-2 text-xs leading-5 text-stone-600">{trace.assistantMessage}</p> : null}
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-stone-500">
+                          <span className="rounded-md bg-white px-2 py-1">Accion: {trace.resolution.action}</span>
+                          <span className="rounded-md bg-white px-2 py-1">Fallback: {trace.resolution.fallbackUsed ? 'si' : 'no'}</span>
+                          <span className="rounded-md bg-white px-2 py-1">Confirmacion pendiente: {trace.resolution.confirmationPending ? 'si' : 'no'}</span>
+                        </div>
+                        {trace.resolution.candidates.length > 0 ? <p className="mt-2 text-[11px] text-stone-500">Candidatos: {trace.resolution.candidates.map((candidate) => `${candidate.name} (${Math.round(candidate.confidence * 100)}%)`).join(' · ')}</p> : null}
+                      </article>
+                    ))}
                   </div>
                 </div>
               </section>
@@ -502,8 +542,8 @@ function ActionButton({ icon, label, onClick }: { icon?: React.ReactNode; label:
 function IconDangerButton({ icon, onClick }: { icon: React.ReactNode; onClick: () => void }) { return <button type="button" onClick={onClick} className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-red-200 text-red-700 transition hover:bg-red-50 sm:h-9 sm:w-9">{icon}</button>; }
 function SquareButton({ icon, disabled, onClick }: { icon: React.ReactNode; disabled?: boolean; onClick: () => void }) { return <button type="button" disabled={disabled} onClick={onClick} className="inline-flex h-10 w-full items-center justify-center rounded-lg border border-stone-300 text-stone-700 transition hover:bg-stone-50 disabled:bg-stone-100 disabled:text-stone-400 sm:h-9 sm:w-9">{icon}</button>; }
 function PanelForm({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="panel overflow-hidden"><div className="border-b border-stone-200 px-4 py-4 sm:px-6 sm:py-5"><h2 className="text-base font-semibold text-stone-900">{title}</h2><p className="mt-1 text-sm text-stone-500">{description}</p></div>{children}</section>; }
-function MobileNavButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition ${active ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'}`}>{icon}{label}</button>; }
-function SidebarNavButton({ active, icon, label, helper, onClick }: { active: boolean; icon: React.ReactNode; label: string; helper: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-stone-900 text-white shadow-lg shadow-stone-300/30' : 'text-stone-700 hover:bg-stone-50'}`}><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-white/12 text-white' : 'bg-stone-100 text-stone-600'}`}>{icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{label}</span><span className={`block text-xs ${active ? 'text-stone-300' : 'text-stone-500'}`}>{helper}</span></span></button>; }
+function MobileNavButton({ active, icon, label, onClick }: { key?: React.Key; active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-medium transition ${active ? 'border-stone-900 bg-stone-900 text-white' : 'border-stone-300 bg-white text-stone-700'}`}>{icon}{label}</button>; }
+function SidebarNavButton({ active, icon, label, helper, onClick }: { key?: React.Key; active: boolean; icon: React.ReactNode; label: string; helper: string; onClick: () => void }) { return <button type="button" onClick={onClick} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-stone-900 text-white shadow-lg shadow-stone-300/30' : 'text-stone-700 hover:bg-stone-50'}`}><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${active ? 'bg-white/12 text-white' : 'bg-stone-100 text-stone-600'}`}>{icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-medium">{label}</span><span className={`block text-xs ${active ? 'text-stone-300' : 'text-stone-500'}`}>{helper}</span></span></button>; }
 function StatCard({ label, value, tone = 'default', compact = false }: { label: string; value: number; tone?: 'default' | 'amber' | 'muted'; compact?: boolean }) { return <div className={`rounded-2xl border px-4 ${compact ? 'py-3' : 'py-3'} ${tone === 'amber' ? 'border-amber-200 bg-amber-50' : 'border-stone-200 bg-white'}`}><p className={`font-medium uppercase tracking-[0.14em] text-stone-500 ${compact ? 'text-[11px]' : 'text-xs'}`}>{label}</p><p className={`font-semibold text-stone-900 ${compact ? 'mt-1 text-xl' : 'mt-2 text-2xl'}`}>{value}</p></div>; }
 function SummaryRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-4 py-3"><span className="text-sm text-stone-600">{label}</span><span className="text-sm font-semibold text-stone-900">{value}</span></div>; }
 function Input({ label, value, onChange, placeholder, list }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; list?: string }) { return <label className="block space-y-2"><span className="text-sm font-medium text-stone-700">{label}</span><input list={list} value={value} onChange={(e) => onChange(e.target.value)} className="w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-sm text-stone-900 outline-none transition focus:border-amber-600" placeholder={placeholder} /></label>; }

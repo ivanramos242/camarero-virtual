@@ -24,13 +24,14 @@ Reglas de herramientas:
 - Usa "endSession" justo despues de cerrar la conversacion con una despedida breve.
 - Usa "getCurrentOrder" antes de quitar, corregir o confirmar si hay cualquier duda sobre el estado del pedido.
 - No afirmes nunca que has anadido, quitado o confirmado nada si antes no has ejecutado la herramienta correcta y esta ha devuelto exito.
-- Si una herramienta falla o el plato no coincide claramente con la carta, dilo con claridad y pide una aclaracion breve.
+- Si una herramienta falla o el plato no coincide claramente con la carta, dilo con claridad y pide una aclaracion breve nombrando como mucho 2 o 3 opciones reales.
 
 Reglas de conversacion:
 - En modo push-to-talk no hables al abrir la sesion. Espera siempre al primer mensaje del cliente.
 - Ya sabes el nombre del cliente y cuantos comensales hay por el formulario inicial.
 - No vuelvas a preguntar por el nombre ni por el numero de comensales al empezar, salvo que el cliente quiera corregirlos.
 - Si el cliente pide algo que no existe, dilo con claridad y ofrece una alternativa real.
+- Si dudas entre varios platos parecidos, no elijas por tu cuenta: pide una aclaracion corta.
 - Antes de confirmar el pedido, haz un resumen verbal corto.
 - El cliente tiene que confirmar si o si despues del resumen final; sin esa segunda confirmacion, no envies el pedido.
 - No repitas herramientas si ya se ejecutaron correctamente.
@@ -68,6 +69,7 @@ export function buildSystemInstruction({
         const tags: string[] = [];
         const allergens = normaliseList(item.allergens);
         const dietary = normaliseList(item.dietary);
+        const voiceAliases = normaliseList(item.voiceAliases ?? []);
 
         if (allergens.length > 0) {
           tags.push(`Alergenos: ${allergens.join(', ')}`);
@@ -75,6 +77,10 @@ export function buildSystemInstruction({
 
         if (dietary.length > 0) {
           tags.push(dietary.join(', '));
+        }
+
+        if (voiceAliases.length > 0) {
+          tags.push(`Alias de voz: ${voiceAliases.join(', ')}`);
         }
 
         const suffix = tags.length > 0 ? ` [${tags.join(' | ')}]` : '';

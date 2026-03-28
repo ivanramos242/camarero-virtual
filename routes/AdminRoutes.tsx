@@ -16,6 +16,7 @@ import type {
   TableQrResponse,
   TablesQrBatchResponse,
   UpdateAdminSettingsRequest,
+  VoiceTraceEntry,
 } from '../types';
 import {
   createAdminMenuItemOnApi,
@@ -26,6 +27,7 @@ import {
   fetchAdminTableQrFromApi,
   fetchAdminTablesFromApi,
   fetchAdminTablesQrBatchFromApi,
+  fetchAdminVoiceTracesFromApi,
   reorderAdminMenuOnApi,
   updateAdminSettingsOnApi,
   updateAdminMenuItemAvailabilityOnApi,
@@ -144,6 +146,9 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
   const [tablesLoading, setTablesLoading] = useState(true);
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const [voiceTraces, setVoiceTraces] = useState<VoiceTraceEntry[]>([]);
+  const [voiceTracesLoading, setVoiceTracesLoading] = useState(true);
+  const [voiceTracesError, setVoiceTracesError] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -201,6 +206,30 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
     void refreshSettings();
   }, [refreshSettings]);
 
+  const refreshVoiceTraces = useCallback(async () => {
+    try {
+      setVoiceTracesLoading(true);
+      const nextTraces = await fetchAdminVoiceTracesFromApi();
+      setVoiceTraces(nextTraces);
+      setVoiceTracesError(null);
+    } catch (requestError) {
+      setVoiceTracesError(requestError instanceof Error ? requestError.message : 'No se pudieron cargar las trazas de voz.');
+    } finally {
+      setVoiceTracesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshVoiceTraces();
+    const intervalId = window.setInterval(() => {
+      void refreshVoiceTraces();
+    }, 15_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshVoiceTraces]);
+
   const withMenuAction = useCallback(
     async (action: () => Promise<MenuItem[]>, successMessage: string) => {
       try {
@@ -243,6 +272,7 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
         ingredients: item.ingredients,
         allergens: item.allergens,
         dietary: item.dietary,
+        voiceAliases: item.voiceAliases ?? [],
         available: item.available,
       };
 
@@ -395,13 +425,16 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
       orders={orders}
       tables={tables}
       settings={settings}
+      voiceTraces={voiceTraces}
       menuLoading={menuLoading}
       ordersLoading={ordersLoading}
       tablesLoading={tablesLoading}
       settingsLoading={settingsLoading}
+      voiceTracesLoading={voiceTracesLoading}
       menuError={menuError}
       ordersError={ordersError}
       tablesError={tablesError}
+      voiceTracesError={voiceTracesError}
       actionError={actionError}
       actionSuccess={actionSuccess}
       isSaving={isSaving}
@@ -439,6 +472,10 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
       onRefreshSettings={() => {
         setActionError(null);
         void refreshSettings();
+      }}
+      onRefreshVoiceTraces={() => {
+        setActionError(null);
+        void refreshVoiceTraces();
       }}
       onRefreshOrders={() => {
         setActionError(null);

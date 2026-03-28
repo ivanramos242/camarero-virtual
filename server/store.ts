@@ -52,7 +52,10 @@ class AppStore extends EventEmitter {
           customerEmail: order.reviewConsent && order.customerEmail ? order.customerEmail : undefined,
           reviewConsent: Boolean(order.reviewConsent && order.customerEmail),
         })),
-        menu: parsedContent.menu ?? parsedContent.menuCache ?? [],
+        menu: (parsedContent.menu ?? parsedContent.menuCache ?? []).map((item) => ({
+          ...item,
+          voiceAliases: item.voiceAliases ?? [],
+        })),
         tables: parsedContent.tables ?? [],
         settings: {
           showWifiPopup: parsedContent.settings?.showWifiPopup ?? false,

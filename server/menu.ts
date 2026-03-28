@@ -127,6 +127,7 @@ const cloneMenu = (menu: MenuItem[]) =>
     .map((item, index) => ({
       ...item,
       sortOrder: typeof item.sortOrder === 'number' ? item.sortOrder : index,
+      voiceAliases: sanitiseList(item.voiceAliases),
       imageUrl: item.imageUrl ?? null,
     }))
     .sort((left, right) => {
@@ -177,6 +178,7 @@ const normaliseMenuInput = (input: CreateMenuItemRequest | UpdateMenuItemRequest
     dietary: sanitiseList(input.dietary),
     available: input.available ?? true,
     ingredients: sanitiseList(input.ingredients),
+    voiceAliases: sanitiseList(input.voiceAliases),
     imageUrl: input.imageUrl?.trim() || null,
   };
 };
@@ -206,6 +208,7 @@ const buildMenuFromRows = (rows: Array<Record<string, string>>): MenuItem[] => {
         dietary: toList(row.tipo_dieta || row.dietary),
         available: toBoolean(row.disponibilidad || row.available),
         ingredients: toList(row.ingredientes || row.ingredients),
+        voiceAliases: toList(row.alias_voz || row.voice_aliases || row.aliases || row.synonyms),
         imageUrl: row.image_url || row.imagen || row.image || null,
       } satisfies MenuItem;
     })
@@ -308,6 +311,7 @@ export async function updateMenuItem(itemId: string, input: UpdateMenuItemReques
     dietary: input.dietary ?? targetItem.dietary,
     available: input.available ?? targetItem.available,
     ingredients: input.ingredients ?? targetItem.ingredients,
+    voiceAliases: input.voiceAliases ?? targetItem.voiceAliases ?? [],
     imageUrl: input.imageUrl ?? targetItem.imageUrl ?? null,
   };
 

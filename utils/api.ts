@@ -19,6 +19,7 @@ import type {
   TablesQrBatchResponse,
   UploadImageResponse,
   VoiceDiagnosticsResponse,
+  VoiceTraceEntry,
   UpdateAdminTableRequest,
   UpdateAdminTableStatusRequest,
   UpdateAdminSettingsRequest,
@@ -273,6 +274,19 @@ export async function createVoiceSessionToken() {
 
 export async function fetchVoiceDiagnostics() {
   return request<VoiceDiagnosticsResponse>('/api/debug/voice', {
+    method: 'GET',
+  });
+}
+
+export async function recordVoiceTraceOnApi(payload: VoiceTraceEntry) {
+  return request<void>('/api/voice/trace', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchAdminVoiceTracesFromApi() {
+  return request<VoiceTraceEntry[]>('/api/admin/voice-traces', {
     method: 'GET',
   });
 }
