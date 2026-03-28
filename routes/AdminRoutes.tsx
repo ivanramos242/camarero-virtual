@@ -144,7 +144,6 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
   const [tables, setTables] = useState<AdminTable[]>([]);
   const [settings, setSettings] = useState<AdminSettings>({
     showWifiPopup: branding.showWifiPopup,
-    showProductImages: branding.showProductImages,
     wifiSsid: branding.wifiSsid,
     wifiPassword: branding.wifiPassword,
   });

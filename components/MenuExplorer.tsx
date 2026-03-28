@@ -5,11 +5,10 @@ import type { MenuItem } from '../types';
 
 interface MenuExplorerProps {
   menu: MenuItem[];
-  showProductImages: boolean;
   onAddItem: (item: MenuItem) => void;
 }
 
-const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, showProductImages, onAddItem }) => {
+const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [mobileView, setMobileView] = useState<'grid' | 'list'>('grid');
   const categoryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -112,7 +111,7 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, showProductImages, on
           const isVegan = item.dietary.some((diet) => diet.toLowerCase().includes('veg'));
           const secondaryDietary = item.dietary.filter((diet) => !diet.toLowerCase().includes('veg'));
           const isGrid = mobileView === 'grid';
-          const shouldShowImage = showProductImages && Boolean(item.imageUrl);
+          const shouldShowImage = Boolean(item.imageUrl);
 
           return (
             <article

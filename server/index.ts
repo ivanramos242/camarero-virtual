@@ -150,7 +150,6 @@ const tablesQrBatchSchema = z.object({
 
 const adminSettingsSchema = z.object({
   showWifiPopup: z.coerce.boolean(),
-  showProductImages: z.coerce.boolean(),
   wifiSsid: z.string().trim().max(120),
   wifiPassword: z.string().trim().max(120),
 });
@@ -656,7 +655,6 @@ const getAdminSettings = async (): Promise<AdminSettings> => {
   const store = await appStore.read();
   return {
     showWifiPopup: store.settings.showWifiPopup || false,
-    showProductImages: store.settings.showProductImages ?? true,
     wifiSsid: store.settings.wifiSsid || '',
     wifiPassword: store.settings.wifiPassword || '',
   };
@@ -667,7 +665,6 @@ const buildPublicConfig = async () => {
   return {
     ...publicBranding,
     showWifiPopup: settings.showWifiPopup,
-    showProductImages: settings.showProductImages,
     wifiSsid: settings.wifiSsid,
     wifiPassword: settings.wifiPassword,
   };
@@ -1038,7 +1035,6 @@ app.patch('/api/admin/settings', requireAdminAuth, async (request, response) => 
     ...current,
     settings: {
       showWifiPopup: payload.showWifiPopup,
-      showProductImages: payload.showProductImages,
       wifiSsid: payload.wifiSsid,
       wifiPassword: payload.wifiPassword,
     },

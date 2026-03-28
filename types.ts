@@ -108,21 +108,18 @@ export interface AppBranding {
   voiceEnabled: boolean;
   voiceProvider: 'gemini' | 'openai' | 'none';
   showWifiPopup: boolean;
-  showProductImages: boolean;
   wifiSsid: string;
   wifiPassword: string;
 }
 
 export interface AdminSettings {
   showWifiPopup: boolean;
-  showProductImages: boolean;
   wifiSsid: string;
   wifiPassword: string;
 }
 
 export interface UpdateAdminSettingsRequest {
   showWifiPopup: boolean;
-  showProductImages: boolean;
   wifiSsid: string;
   wifiPassword: string;
 }

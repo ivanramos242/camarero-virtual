@@ -124,7 +124,6 @@ export const publicBranding: AppBranding = {
   voiceEnabled: resolvedVoiceProvider !== 'none',
   voiceProvider: resolvedVoiceProvider,
   showWifiPopup: process.env.SHOW_WIFI_POPUP === 'true',
-  showProductImages: true,
   wifiSsid: process.env.WIFI_SSID?.trim() || '',
   wifiPassword: process.env.WIFI_PASSWORD?.trim() || '',
 };

@@ -97,7 +97,6 @@ const defaultBranding: AppBranding = {
   voiceEnabled: false,
   voiceProvider: 'none',
   showWifiPopup: false,
-  showProductImages: true,
   wifiSsid: '',
   wifiPassword: '',
 };
@@ -937,7 +936,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
                 menu={menu}
                 menuError={menuError}
                 menuLoading={menuLoading}
-                showProductImages={branding.showProductImages}
                 onAddItem={handleAddToCart}
                 onRetry={refreshMenu}
               />
@@ -1460,12 +1458,11 @@ interface MenuPanelProps {
   menu: MenuItem[];
   menuError: string | null;
   menuLoading: boolean;
-  showProductImages: boolean;
   onAddItem: (item: MenuItem, quantity: number, notes?: string) => void;
   onRetry: () => Promise<void>;
 }
 
-function MenuPanel({ menu, menuError, menuLoading, showProductImages, onAddItem, onRetry }: MenuPanelProps) {
+function MenuPanel({ menu, menuError, menuLoading, onAddItem, onRetry }: MenuPanelProps) {
   if (menuLoading) {
     return (
       <section className="panel flex items-center gap-3 px-6 py-5 text-sm text-stone-500">
@@ -1498,7 +1495,7 @@ function MenuPanel({ menu, menuError, menuLoading, showProductImages, onAddItem,
     );
   }
 
-  return <MenuExplorer menu={menu} showProductImages={showProductImages} onAddItem={(item) => onAddItem(item, 1)} />;
+  return <MenuExplorer menu={menu} onAddItem={(item) => onAddItem(item, 1)} />;
 }
 
 function DebugPanel({ logs }: { logs: { role: 'assistant' | 'system' | 'error'; text: string; timestamp: number }[] }) {

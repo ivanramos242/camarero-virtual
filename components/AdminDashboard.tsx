@@ -5,7 +5,7 @@ import type { AdminSettings, AdminTable, CreateAdminTableRequest, CreateMenuItem
 
 type MenuForm = { name: string; description: string; price: string; category: string; imageUrl: string; ingredients: string; allergens: string; dietary: string; voiceAliases: string; available: boolean };
 type TableForm = { number: string; label: string };
-type SettingsForm = { showWifiPopup: boolean; showProductImages: boolean; wifiSsid: string; wifiPassword: string };
+type SettingsForm = { showWifiPopup: boolean; wifiSsid: string; wifiPassword: string };
 type AdminSection = 'menu' | 'tables' | 'orders' | 'settings';
 
 interface Props {
@@ -57,7 +57,7 @@ interface Props {
 
 const emptyMenu: MenuForm = { name: '', description: '', price: '', category: '', imageUrl: '', ingredients: '', allergens: '', dietary: '', voiceAliases: '', available: true };
 const emptyTable: TableForm = { number: '', label: '' };
-const emptySettings: SettingsForm = { showWifiPopup: false, showProductImages: true, wifiSsid: '', wifiPassword: '' };
+const emptySettings: SettingsForm = { showWifiPopup: false, wifiSsid: '', wifiPassword: '' };
 const orderLabel: Record<PersistedOrder['status'], string> = { pending: 'Pendiente', cooking: 'En cocina', ready: 'Listo', served: 'Servido' };
 const toList = (value: string) => value.split(',').map((v) => v.trim()).filter(Boolean);
 const toMenuPayload = (form: MenuForm): CreateMenuItemRequest => ({ name: form.name.trim(), description: form.description.trim(), price: Number(form.price), category: form.category.trim(), imageUrl: form.imageUrl.trim() || null, ingredients: toList(form.ingredients), allergens: toList(form.allergens), dietary: toList(form.dietary), voiceAliases: toList(form.voiceAliases), available: form.available });
@@ -87,7 +87,6 @@ export default function AdminDashboard(props: Props) {
   useEffect(() => {
     setSettingsForm({
       showWifiPopup: props.settings.showWifiPopup,
-      showProductImages: props.settings.showProductImages,
       wifiSsid: props.settings.wifiSsid,
       wifiPassword: props.settings.wifiPassword,
     });
@@ -402,8 +401,8 @@ export default function AdminDashboard(props: Props) {
               <section className="panel overflow-hidden">
                 <div className="flex flex-col gap-3 border-b border-stone-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
                   <div>
-                    <h3 className="text-base font-semibold text-stone-900">Opciones de cliente</h3>
-                    <p className="mt-1 text-sm text-stone-500">Configura si quieres mostrar el acceso al Wi-Fi y si la carta debe ensenar imagenes de producto.</p>
+                    <h3 className="text-base font-semibold text-stone-900">Wi-Fi para clientes</h3>
+                    <p className="mt-1 text-sm text-stone-500">Configura si quieres mostrar el acceso al Wi-Fi antes del nombre y comensales.</p>
                   </div>
                   {props.settingsLoading ? <InlineLoader /> : null}
                 </div>
@@ -414,7 +413,6 @@ export default function AdminDashboard(props: Props) {
                     <div className="mt-3 space-y-2 rounded-lg border border-stone-200 bg-white px-4 py-4 text-sm">
                       <p><span className="font-medium text-stone-900">Red:</span> <span className="text-stone-600">{settingsForm.wifiSsid || 'Sin configurar'}</span></p>
                       <p><span className="font-medium text-stone-900">Contrasena:</span> <span className="text-stone-600">{settingsForm.wifiPassword || 'Sin configurar'}</span></p>
-                      <p><span className="font-medium text-stone-900">Imagenes en carta:</span> <span className="text-stone-600">{settingsForm.showProductImages ? 'Visibles' : 'Ocultas'}</span></p>
                     </div>
                   </div>
                 </div>
@@ -516,13 +514,12 @@ export default function AdminDashboard(props: Props) {
             ) : null}
 
             {activeSection === 'settings' ? (
-              <PanelForm title="Opciones de cliente" description="Define si quieres mostrar el acceso a internet y como se ve la carta.">
-                <form onSubmit={(e) => { e.preventDefault(); void props.onSaveSettings({ showWifiPopup: settingsForm.showWifiPopup, showProductImages: settingsForm.showProductImages, wifiSsid: settingsForm.wifiSsid.trim(), wifiPassword: settingsForm.wifiPassword.trim() }); }} className="space-y-4 px-6 py-5">
+              <PanelForm title="Opciones de Wi-Fi" description="Define si quieres mostrar el acceso a internet y con que datos.">
+                <form onSubmit={(e) => { e.preventDefault(); void props.onSaveSettings({ showWifiPopup: settingsForm.showWifiPopup, wifiSsid: settingsForm.wifiSsid.trim(), wifiPassword: settingsForm.wifiPassword.trim() }); }} className="space-y-4 px-6 py-5">
                   <label className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-3"><div><p className="text-sm font-medium text-stone-800">Mostrar pop-up de Wi-Fi</p><p className="text-xs text-stone-500">Se enseña antes del formulario inicial de cliente.</p></div><input type="checkbox" checked={settingsForm.showWifiPopup} onChange={(e) => setSettingsForm((current) => ({ ...current, showWifiPopup: e.target.checked }))} className="h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" /></label>
-                  <label className="flex items-center justify-between rounded-lg border border-stone-200 bg-stone-50 px-3 py-3"><div><p className="text-sm font-medium text-stone-800">Mostrar imagenes en carta</p><p className="text-xs text-stone-500">Activalo si quieres que el cliente vea fotos de los platos.</p></div><input type="checkbox" checked={settingsForm.showProductImages} onChange={(e) => setSettingsForm((current) => ({ ...current, showProductImages: e.target.checked }))} className="h-4 w-4 rounded border-stone-300 text-amber-700 focus:ring-amber-600" /></label>
                   <Input label="Nombre de la red" value={settingsForm.wifiSsid} onChange={(value) => setSettingsForm((current) => ({ ...current, wifiSsid: value }))} placeholder="Ej. Restaurante Guest" />
                   <Input label="Contrasena Wi-Fi" value={settingsForm.wifiPassword} onChange={(value) => setSettingsForm((current) => ({ ...current, wifiPassword: value }))} placeholder="Ej. camarero2026" />
-                  <div className="flex flex-wrap gap-2 pt-2"><PrimaryButton type="submit" loading={props.isSavingSettings}>Guardar opciones</PrimaryButton><SecondaryButton onClick={() => setSettingsForm({ showWifiPopup: props.settings.showWifiPopup, showProductImages: props.settings.showProductImages, wifiSsid: props.settings.wifiSsid, wifiPassword: props.settings.wifiPassword })}>Restablecer</SecondaryButton></div>
+                  <div className="flex flex-wrap gap-2 pt-2"><PrimaryButton type="submit" loading={props.isSavingSettings}>Guardar opciones</PrimaryButton><SecondaryButton onClick={() => setSettingsForm({ showWifiPopup: props.settings.showWifiPopup, wifiSsid: props.settings.wifiSsid, wifiPassword: props.settings.wifiPassword })}>Restablecer</SecondaryButton></div>
                 </form>
               </PanelForm>
             ) : null}
