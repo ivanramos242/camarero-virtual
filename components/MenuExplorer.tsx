@@ -49,10 +49,10 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
   }, [activeCategory]);
 
   return (
-    <section className="panel min-w-0 overflow-hidden">
-      <div className="border-b border-stone-200 px-5 py-4">
+    <section className="panel -mx-4 w-[calc(100%+2rem)] overflow-hidden rounded-none border-x-0 sm:mx-0 sm:w-auto sm:rounded-[12px] sm:border">
+      <div className="border-b border-stone-200 px-4 py-4 sm:px-5">
         <h2 className="text-base font-semibold text-stone-900">Carta disponible</h2>
-        <p className="mt-1 text-sm text-stone-500">Añade platos manualmente si prefieres no usar la voz.</p>
+        <p className="mt-1 text-sm text-stone-500">Anade platos manualmente si prefieres no usar la voz.</p>
       </div>
 
       <div className="scrollbar-thin flex gap-2 overflow-x-auto border-b border-stone-200 px-4 py-3 sm:px-5">
@@ -84,7 +84,7 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
             aria-pressed={mobileView === 'grid'}
           >
             <Grid2x2 size={16} />
-            Cuadrícula
+            Cuadricula
           </button>
           <button
             type="button"
@@ -101,34 +101,35 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
       </div>
 
       <div
-        className={`p-4 sm:p-5 ${
+        className={`p-3 sm:p-5 ${
           mobileView === 'grid'
-            ? 'grid grid-cols-2 gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3'
+            ? 'grid grid-cols-2 gap-2.5 md:grid-cols-2 md:gap-4 xl:grid-cols-3'
             : 'flex flex-col gap-3 md:grid md:grid-cols-2 md:gap-4 xl:grid-cols-3'
         }`}
       >
         {filteredMenu.map((item) => {
           const isVegan = item.dietary.some((diet) => diet.toLowerCase().includes('veg'));
           const secondaryDietary = item.dietary.filter((diet) => !diet.toLowerCase().includes('veg'));
+          const isGrid = mobileView === 'grid';
 
           return (
             <article
               key={item.id}
               className={`overflow-hidden rounded-xl border border-stone-200 bg-white ${
-                mobileView === 'list' ? 'flex items-stretch sm:block' : ''
+                isGrid ? '' : 'flex items-stretch sm:block'
               }`}
             >
-              <div className={`relative overflow-hidden bg-stone-100 ${mobileView === 'list' ? 'w-28 shrink-0 sm:w-auto' : ''}`}>
+              <div className={`relative overflow-hidden bg-stone-100 ${isGrid ? '' : 'w-28 shrink-0 sm:w-auto'}`}>
                 {item.imageUrl ? (
                   <img
                     src={item.imageUrl}
                     alt={item.name}
-                    className={`w-full object-cover ${mobileView === 'grid' ? 'h-24 sm:h-40' : 'h-full min-h-28 sm:h-40'}`}
+                    className={`w-full object-cover ${isGrid ? 'h-28' : 'h-full min-h-28 sm:h-40'}`}
                   />
                 ) : (
                   <div
                     className={`flex items-center justify-center bg-stone-100 px-3 text-center text-xs text-stone-400 sm:text-sm ${
-                      mobileView === 'grid' ? 'h-24 sm:h-40' : 'h-full min-h-28 sm:h-40'
+                      isGrid ? 'h-28' : 'h-full min-h-28 sm:h-40'
                     }`}
                   >
                     {item.category}
@@ -143,18 +144,22 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                 ) : null}
               </div>
 
-              <div className={`p-3 sm:p-4 ${mobileView === 'grid' ? 'space-y-3' : 'flex min-w-0 flex-1 flex-col justify-between space-y-3'}`}>
-                <div className="flex items-start justify-between gap-2">
+              <div className={`p-3 sm:p-4 ${isGrid ? 'space-y-2.5' : 'flex min-w-0 flex-1 flex-col justify-between space-y-3'}`}>
+                <div className={`gap-2 ${isGrid ? 'space-y-1.5' : 'flex items-start justify-between'}`}>
                   <div className="min-w-0">
-                    <h3 className={`font-semibold text-stone-900 ${mobileView === 'grid' ? 'text-sm leading-5 sm:text-base' : 'text-sm sm:text-base'}`}>
+                    <h3 className={`font-semibold text-stone-900 ${isGrid ? 'line-clamp-2 text-[13px] leading-4.5' : 'text-sm sm:text-base'}`}>
                       {item.name}
                     </h3>
-                    <p className="mt-1 line-clamp-2 text-xs leading-4 text-stone-500 sm:text-sm sm:leading-6">{item.description}</p>
+                    {isGrid ? null : (
+                      <p className="mt-1 line-clamp-2 text-xs leading-4 text-stone-500 sm:text-sm sm:leading-6">{item.description}</p>
+                    )}
                   </div>
-                  <span className="shrink-0 text-sm font-medium text-stone-700">{item.price.toFixed(2)} €</span>
+                  <span className={`block font-medium ${isGrid ? 'text-sm text-stone-900' : 'shrink-0 text-sm text-stone-700'}`}>
+                    {item.price.toFixed(2)} EUR
+                  </span>
                 </div>
 
-                {secondaryDietary.length > 0 ? (
+                {!isGrid && secondaryDietary.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {secondaryDietary.map((diet) => (
                       <span
@@ -168,10 +173,10 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                   </div>
                 ) : null}
 
-                {item.allergens.length > 0 ? (
+                {!isGrid && item.allergens.length > 0 ? (
                   <p className="inline-flex items-center gap-1 text-xs text-stone-500">
                     <AlertCircle size={12} />
-                    Alérgenos: {item.allergens.join(', ')}
+                    Alergenos: {item.allergens.join(', ')}
                   </p>
                 ) : null}
 
@@ -179,11 +184,11 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                   type="button"
                   onClick={() => onAddItem(item)}
                   className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border border-stone-300 px-4 text-sm font-medium text-stone-800 transition hover:bg-stone-50 ${
-                    mobileView === 'grid' ? 'min-h-10 py-2.5' : 'min-h-11 py-3'
+                    isGrid ? 'min-h-9 py-2' : 'min-h-11 py-3'
                   }`}
                 >
-                  <Plus size={16} />
-                  Añadir al pedido
+                  <Plus size={isGrid ? 14 : 16} />
+                  Anadir
                 </button>
               </div>
             </article>
