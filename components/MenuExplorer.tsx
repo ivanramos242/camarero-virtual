@@ -155,7 +155,7 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                     )}
                   </div>
                   <span className={`block font-medium ${isGrid ? 'text-sm text-stone-900' : 'shrink-0 text-sm text-stone-700'}`}>
-                    {item.price.toFixed(2)} EUR
+                    {item.price.toFixed(2)} €
                   </span>
                 </div>
 
