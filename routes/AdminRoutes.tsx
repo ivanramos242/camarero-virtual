@@ -142,7 +142,12 @@ export function AdminPage({ branding, onLogout }: AdminPageProps) {
   } = useMenuFeed(true, 'admin');
   const { orders, isLoading: ordersLoading, error: ordersError, refresh: refreshOrders } = useOrdersFeed();
   const [tables, setTables] = useState<AdminTable[]>([]);
-  const [settings, setSettings] = useState<AdminSettings>({ showWifiPopup: branding.showWifiPopup, wifiSsid: branding.wifiSsid, wifiPassword: branding.wifiPassword });
+  const [settings, setSettings] = useState<AdminSettings>({
+    showWifiPopup: branding.showWifiPopup,
+    showProductImages: branding.showProductImages,
+    wifiSsid: branding.wifiSsid,
+    wifiPassword: branding.wifiPassword,
+  });
   const [tablesLoading, setTablesLoading] = useState(true);
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(true);

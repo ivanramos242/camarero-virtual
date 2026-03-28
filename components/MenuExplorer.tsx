@@ -5,10 +5,11 @@ import type { MenuItem } from '../types';
 
 interface MenuExplorerProps {
   menu: MenuItem[];
+  showProductImages: boolean;
   onAddItem: (item: MenuItem) => void;
 }
 
-const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
+const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, showProductImages, onAddItem }) => {
   const [activeCategory, setActiveCategory] = useState('Todos');
   const [mobileView, setMobileView] = useState<'grid' | 'list'>('grid');
   const categoryRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -111,38 +112,31 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
           const isVegan = item.dietary.some((diet) => diet.toLowerCase().includes('veg'));
           const secondaryDietary = item.dietary.filter((diet) => !diet.toLowerCase().includes('veg'));
           const isGrid = mobileView === 'grid';
+          const shouldShowImage = showProductImages && Boolean(item.imageUrl);
 
           return (
             <article
               key={item.id}
               className={`overflow-hidden rounded-xl border border-stone-200 bg-white ${
-                isGrid ? '' : 'flex items-stretch sm:block'
+                isGrid || !shouldShowImage ? '' : 'flex items-stretch sm:block'
               }`}
             >
-              <div className={`relative overflow-hidden bg-stone-100 ${isGrid ? '' : 'w-28 shrink-0 sm:w-auto'}`}>
-                {item.imageUrl ? (
+              {shouldShowImage ? (
+                <div className={`relative overflow-hidden bg-stone-100 ${isGrid ? '' : 'w-28 shrink-0 sm:w-auto'}`}>
                   <img
-                    src={item.imageUrl}
+                    src={item.imageUrl!}
                     alt={item.name}
                     className={`w-full object-cover ${isGrid ? 'h-28' : 'h-full min-h-28 sm:h-40'}`}
                   />
-                ) : (
-                  <div
-                    className={`flex items-center justify-center bg-stone-100 px-3 text-center text-xs text-stone-400 sm:text-sm ${
-                      isGrid ? 'h-28' : 'h-full min-h-28 sm:h-40'
-                    }`}
-                  >
-                    {item.category}
-                  </div>
-                )}
 
-                {isVegan ? (
-                  <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/92 px-2 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur">
-                    <Leaf size={12} />
-                    Vegano
-                  </span>
-                ) : null}
-              </div>
+                  {isVegan ? (
+                    <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/92 px-2 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur">
+                      <Leaf size={12} />
+                      Vegano
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className={`p-3 sm:p-4 ${isGrid ? 'space-y-2.5' : 'flex min-w-0 flex-1 flex-col justify-between space-y-3'}`}>
                 <div className={`gap-2 ${isGrid ? 'space-y-1.5' : 'flex items-start justify-between'}`}>
@@ -150,6 +144,12 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                     <h3 className={`font-semibold text-stone-900 ${isGrid ? 'line-clamp-2 text-[13px] leading-4.5' : 'text-sm sm:text-base'}`}>
                       {item.name}
                     </h3>
+                    {!shouldShowImage && isVegan ? (
+                      <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                        <Leaf size={12} />
+                        Vegano
+                      </span>
+                    ) : null}
                     <p
                       className={`mt-1 text-xs text-stone-500 ${
                         isGrid ? 'line-clamp-2 leading-4' : 'line-clamp-2 leading-4 sm:text-sm sm:leading-6'

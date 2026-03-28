@@ -22,6 +22,7 @@ const createEmptyStore = (): StoreData => ({
   tables: [],
   settings: {
     showWifiPopup: false,
+    showProductImages: true,
     wifiSsid: '',
     wifiPassword: '',
   },
@@ -59,6 +60,7 @@ class AppStore extends EventEmitter {
         tables: parsedContent.tables ?? [],
         settings: {
           showWifiPopup: parsedContent.settings?.showWifiPopup ?? false,
+          showProductImages: parsedContent.settings?.showProductImages ?? true,
           wifiSsid: parsedContent.settings?.wifiSsid ?? '',
           wifiPassword: parsedContent.settings?.wifiPassword ?? '',
         },
