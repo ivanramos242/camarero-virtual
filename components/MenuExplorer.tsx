@@ -150,9 +150,13 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                     <h3 className={`font-semibold text-stone-900 ${isGrid ? 'line-clamp-2 text-[13px] leading-4.5' : 'text-sm sm:text-base'}`}>
                       {item.name}
                     </h3>
-                    {isGrid ? null : (
-                      <p className="mt-1 line-clamp-2 text-xs leading-4 text-stone-500 sm:text-sm sm:leading-6">{item.description}</p>
-                    )}
+                    <p
+                      className={`mt-1 text-xs text-stone-500 ${
+                        isGrid ? 'line-clamp-2 leading-4' : 'line-clamp-2 leading-4 sm:text-sm sm:leading-6'
+                      }`}
+                    >
+                      {item.description}
+                    </p>
                   </div>
                   <span className={`block font-medium ${isGrid ? 'text-sm text-stone-900' : 'shrink-0 text-sm text-stone-700'}`}>
                     {item.price.toFixed(2)} €
