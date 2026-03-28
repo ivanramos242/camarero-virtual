@@ -135,7 +135,11 @@ const MenuExplorer: React.FC<MenuExplorerProps> = ({ menu, onAddItem }) => {
                     </span>
                   ) : null}
                 </div>
-              ) : null}
+              ) : (
+                <div className={`flex items-center justify-center bg-stone-100 px-3 text-center text-xs text-stone-400 sm:text-sm ${isGrid ? 'h-28' : 'min-h-28 sm:h-40'}`}>
+                  {item.category}
+                </div>
+              )}
 
               <div className={`p-3 sm:p-4 ${isGrid ? 'space-y-2.5' : 'flex min-w-0 flex-1 flex-col justify-between space-y-3'}`}>
                 <div className={`gap-2 ${isGrid ? 'space-y-1.5' : 'flex items-start justify-between'}`}>
