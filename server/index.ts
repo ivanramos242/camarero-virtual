@@ -404,7 +404,6 @@ async function withGeminiApiKeyFallback<T>(runner: (apiKey: string, index: numbe
       lastError = error;
 
       if (isGeminiQuotaError(error) && index < serverConfig.geminiApiKeys.length - 1) {
-        console.warn(`[gemini] Cuota agotada en la clave ${index + 1}. Se intentara la clave ${index + 2}.`);
         continue;
       }
 
@@ -1275,18 +1274,11 @@ const bootstrap = async () => {
   await seedLegacyOrdersFromSheetIfNeeded();
   await getMenu();
 
-  console.log(
-    `[config] Voz: ${publicBranding.voiceProvider} | Gemini: ${serverSecretsState.hasGeminiApiKey ? 'configurado' : 'ausente'} | OpenAI: ${serverSecretsState.hasOpenAiApiKey ? 'configurado' : 'ausente'} | Modelo Gemini: ${serverVoiceState.effectiveGeminiLiveModel}`,
-  );
-
-  if (serverVoiceState.geminiLiveModelWasMigrated) {
-    console.warn(
-      `[voice] Modelo Gemini migrado automaticamente de ${serverVoiceState.configuredGeminiLiveModel} a ${serverVoiceState.effectiveGeminiLiveModel}.`,
-    );
-  }
-
   app.listen(serverConfig.port, serverConfig.host, () => {
-    console.log(`Servidor escuchando en http://${serverConfig.host}:${serverConfig.port}`);
+    void serverConfig;
+    void publicBranding;
+    void serverSecretsState;
+    void serverVoiceState;
   });
 };
 
