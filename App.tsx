@@ -1449,23 +1449,24 @@ function AssistantPanel({
           }}
           onPointerDown={(event) => {
             event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
             setIsPointerPressed(true);
             void onBeginPressToTalk();
           }}
           onPointerUp={(event) => {
             event.preventDefault();
-            setIsPointerPressed(false);
-            onEndPressToTalk();
-          }}
-          onPointerCancel={() => {
-            setIsPointerPressed(false);
-            onEndPressToTalk();
-          }}
-          onPointerLeave={(event) => {
-            if (event.buttons === 1) {
-              setIsPointerPressed(false);
-              onEndPressToTalk();
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
             }
+            setIsPointerPressed(false);
+            onEndPressToTalk();
+          }}
+          onPointerCancel={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            setIsPointerPressed(false);
+            onEndPressToTalk();
           }}
           onContextMenu={(event) => event.preventDefault()}
           className="voice-orb group relative inline-flex touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none disabled:cursor-not-allowed"
