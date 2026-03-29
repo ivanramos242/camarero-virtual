@@ -190,6 +190,7 @@ type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
 
 type LocalVoiceIntent =
   | { type: 'add'; item: MenuItem; quantity: number }
+  | { type: 'addMany'; items: Array<{ item: MenuItem; quantity: number }> }
   | { type: 'remove'; item: MenuItem; quantity: number }
   | { type: 'removeMany'; items: Array<{ item: MenuItem; quantity: number }> }
   | { type: 'removeAllExcept'; items: Array<{ item: MenuItem; quantity: number }>; keepItems: MenuItem[] }
@@ -201,6 +202,37 @@ interface PendingAddFallback {
   menuItemId?: string;
   quantity: number;
   notes?: string;
+}
+
+function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
+  const normalized = normalizeVoiceText(transcript);
+  if (!/\b(pon|ponme|ponnos|trae|traeme|traenos|anade|aÃ±ade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized)) {
+    return [];
+  }
+
+  const segments = normalized
+    .split(/\s*(?:,| y | e | luego | despues | despuÃ©s | tambien | tambiÃ©n )\s*/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  const merged = new Map<string, { item: MenuItem; quantity: number }>();
+
+  for (const segment of segments) {
+    const matchedItem = resolveMenuItemFromVoiceQuery(menuItems, segment);
+    if (!matchedItem) {
+      continue;
+    }
+
+    const quantity = Math.max(1, Math.min(12, parseVoiceQuantity(segment)));
+    const existing = merged.get(matchedItem.id);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      merged.set(matchedItem.id, { item: matchedItem, quantity });
+    }
+  }
+
+  return Array.from(merged.values());
 }
 
 function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[]) {
@@ -352,6 +384,11 @@ function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartIt
 
   const wantsAdd = /\b(pon|ponme|ponnos|trae|traeme|traenos|anade|añade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized);
   if (wantsAdd || menuItems.some((item) => normalized.includes(normalizeVoiceText(item.name)))) {
+    const multipleItems = extractMultipleAddIntents(transcript, menuItems);
+    if (multipleItems.length > 1) {
+      return { type: 'addMany', items: multipleItems };
+    }
+
     const item = resolveMenuItemFromVoiceQuery(menuItems, transcript);
     if (item) {
       return { type: 'add', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
@@ -1126,6 +1163,28 @@ export function useLiveSession({
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
       if (!currentTurnHadAudioOutputRef.current) {
         speakFallbackMessage(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
+      }
+      finalizeTurnIfReady();
+      return true;
+    }
+
+    if (intent.type === 'addMany') {
+      if (currentTurnAddedToOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      intent.items.forEach((entry) => {
+        onAddToCart(entry.item, entry.quantity);
+      });
+      resetPendingOrderConfirmation();
+      currentTurnAddedToOrderRef.current = true;
+      addLog(
+        'system',
+        `Fallback local silencioso: anadidos ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
+      );
+      if (!currentTurnHadAudioOutputRef.current) {
+        speakFallbackMessage(`He añadido ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')} al pedido.`);
       }
       finalizeTurnIfReady();
       return true;
