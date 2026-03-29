@@ -21,7 +21,7 @@ interface UseLiveSessionProps {
   menu: MenuItem[];
   createSessionToken: () => Promise<SessionTokenResponse>;
   onAddToCart: (item: MenuItem, quantity: number, notes?: string) => void;
-  onRemoveFromOrder: (itemName: string) => void;
+  onRemoveFromOrder: (itemName: string, quantity?: number) => void;
   onConfirmOrder: (diners: number, name: string, items?: CartItem[]) => Promise<boolean>;
   onSetDiners: (count: number, name?: string) => void;
   cartItems: CartItem[];
@@ -234,7 +234,7 @@ type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
 
 type LocalVoiceIntent =
   | { type: 'add'; item: MenuItem; quantity: number }
-  | { type: 'remove'; item: MenuItem }
+  | { type: 'remove'; item: MenuItem; quantity: number }
   | { type: 'confirm' }
   | { type: 'unknown' };
 
@@ -265,7 +265,7 @@ function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartIt
       cartItems.map((cartItem) => cartItem.menuItem),
       transcript,
     );
-    return item ? { type: 'remove', item } : { type: 'unknown' };
+    return item ? { type: 'remove', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) } : { type: 'unknown' };
   }
 
   const wantsAdd = /\b(pon|ponme|ponnos|trae|traeme|traenos|anade|añade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized);
@@ -616,12 +616,13 @@ export function useLiveSession({
   const removeFromOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'removeFromOrder',
-      description: 'Quita una unidad del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido.',
+      description: 'Quita una o varias unidades del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido.',
       parameters: {
         type: Type.OBJECT,
         properties: {
           menuItemId: { type: Type.STRING, description: 'ID exacto del plato en el pedido actual. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato a corregir' },
+          quantity: { type: Type.NUMBER, description: 'Numero de unidades a quitar. Si no se indica, quita 1.' },
         },
         required: [],
       },
@@ -718,6 +719,7 @@ export function useLiveSession({
         }
       } else if (name === 'removeFromOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
+        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const item = findMenuItem(
           cartItemsRef.current.map((cartItem) => cartItem.menuItem),
           args,
@@ -727,24 +729,25 @@ export function useLiveSession({
           result = { success: false, error: `No he encontrado "${itemName}" dentro del pedido actual.` };
           addLog('error', result.error);
         } else {
-          onRemoveFromOrder(item.name);
+          onRemoveFromOrder(item.name, quantity);
           resetPendingOrderConfirmation();
           currentTurnRemovedFromOrderRef.current = true;
-          addLog('system', `Corregido el pedido de ${item.name}.`);
+          addLog('system', `Corregido el pedido de ${item.name}: quitadas ${quantity} unidades.`);
           const remainingCart = [...cartItemsRef.current];
           const targetIndex = remainingCart.findIndex((cartItem) => cartItem.menuItem.id === item.id);
           if (targetIndex >= 0) {
             const target = remainingCart[targetIndex];
-            if (target.quantity <= 1) {
+            const nextQuantity = target.quantity - quantity;
+            if (nextQuantity <= 0) {
               remainingCart.splice(targetIndex, 1);
             } else {
-              remainingCart[targetIndex] = { ...target, quantity: target.quantity - 1 };
+              remainingCart[targetIndex] = { ...target, quantity: nextQuantity };
             }
           }
 
           result = {
             success: true,
-            message: `Se ha quitado una unidad de ${item.name} del pedido actual. Pedido actual: ${summarizeCartItems(remainingCart)}`,
+            message: `Se han quitado ${quantity} unidades de ${item.name} del pedido actual. Pedido actual: ${summarizeCartItems(remainingCart)}`,
           };
         }
       } else if (name === 'confirmOrder') {
@@ -928,10 +931,10 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      onRemoveFromOrder(intent.item.name);
+      onRemoveFromOrder(intent.item.name, intent.quantity);
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
-      addLog('system', `Fallback local silencioso: quitado ${intent.item.name}.`);
+      addLog('system', `Fallback local silencioso: quitadas ${intent.quantity} unidades de ${intent.item.name}.`);
       finalizeTurnIfReady();
       return true;
     }

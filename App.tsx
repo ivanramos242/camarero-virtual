@@ -638,8 +638,9 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     );
   }, []);
 
-  const handleRemoveFromOrder = useCallback((itemName: string) => {
+  const handleRemoveFromOrder = useCallback((itemName: string, quantity = 1) => {
     const targetName = itemName.trim().toLowerCase();
+    const targetQuantity = Math.max(1, Math.min(12, quantity));
 
     setCartItems((previousItems) => {
       const targetIndex = previousItems.findIndex((item) => item.menuItem.name.toLowerCase().includes(targetName));
@@ -653,11 +654,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           return item;
         }
 
-        if (item.quantity <= 1) {
+        const nextQuantity = item.quantity - targetQuantity;
+        if (nextQuantity <= 0) {
           return [];
         }
 
-        return [{ ...item, quantity: item.quantity - 1 }];
+        return [{ ...item, quantity: nextQuantity }];
       });
     });
   }, []);
