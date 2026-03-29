@@ -235,6 +235,8 @@ type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
 type LocalVoiceIntent =
   | { type: 'add'; item: MenuItem; quantity: number }
   | { type: 'remove'; item: MenuItem; quantity: number }
+  | { type: 'removeMany'; items: Array<{ item: MenuItem; quantity: number }> }
+  | { type: 'removeAllExcept'; items: Array<{ item: MenuItem; quantity: number }>; keepItems: MenuItem[] }
   | { type: 'confirm' }
   | { type: 'unknown' };
 
@@ -243,6 +245,113 @@ interface PendingAddFallback {
   menuItemId?: string;
   quantity: number;
   notes?: string;
+}
+
+function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[]) {
+  const normalized = normalizeVoiceText(transcript);
+  if (!/\b(quita|quitar|elimina|borra|cancela|sin)\b/.test(normalized)) {
+    return [];
+  }
+
+  const segments = normalized
+    .split(/\s*(?:,| y | e | luego | despues | después | tambien | también )\s*/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  const merged = new Map<string, { item: MenuItem; quantity: number }>();
+  const orderItems = cartItems.map((cartItem) => cartItem.menuItem);
+
+  for (const segment of segments) {
+    const matchedItem = resolveMenuItemFromVoiceQuery(orderItems, segment);
+    if (!matchedItem) {
+      continue;
+    }
+
+    const quantity = Math.max(1, Math.min(12, parseVoiceQuantity(segment)));
+    const existing = merged.get(matchedItem.id);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      merged.set(matchedItem.id, { item: matchedItem, quantity });
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+function findOrderItemsByCategoryOrName(cartItems: CartItem[], rawQuery: string) {
+  const normalized = normalizeVoiceText(rawQuery);
+  if (!normalized) {
+    return [];
+  }
+
+  const tokens = tokenizeVoiceText(rawQuery);
+  const orderItems = cartItems.map((cartItem) => cartItem.menuItem);
+  const directMatch = resolveMenuItemFromVoiceQuery(orderItems, rawQuery);
+  if (directMatch) {
+    return [directMatch];
+  }
+
+  const categoryMatches = orderItems.filter((item) => {
+    const normalizedCategory = normalizeVoiceText(item.category);
+    if (normalized.includes(normalizedCategory) || normalizedCategory.includes(normalized)) {
+      return true;
+    }
+
+    return tokens.some((token) => normalizedCategory.includes(token) || token.includes(normalizedCategory));
+  });
+
+  return Array.from(new Map(categoryMatches.map((item) => [item.id, item])).values());
+}
+
+function extractProtectedItems(transcript: string, cartItems: CartItem[]) {
+  const normalized = normalizeVoiceText(transcript);
+  const keepMarkers = [
+    'pero deja',
+    'pero no quites',
+    'pero no me quites',
+    'menos',
+    'excepto',
+    'salvo',
+  ];
+
+  const marker = keepMarkers.find((candidate) => normalized.includes(candidate));
+  if (!marker) {
+    return [];
+  }
+
+  const clause = normalized.split(marker)[1]?.trim() || '';
+  if (!clause) {
+    return [];
+  }
+
+  return findOrderItemsByCategoryOrName(cartItems, clause);
+}
+
+function extractRemoveAllExceptIntent(transcript: string, cartItems: CartItem[]) {
+  const normalized = normalizeVoiceText(transcript);
+  if (!/\b(quita|quitar|borra|elimina|cancela)\b/.test(normalized) || !/\btodo\b/.test(normalized)) {
+    return null;
+  }
+
+  const keepItems = extractProtectedItems(transcript, cartItems);
+  const keepIds = new Set(keepItems.map((item) => item.id));
+  const removableItems = cartItems
+    .filter((cartItem) => !keepIds.has(cartItem.menuItem.id))
+    .map((cartItem) => ({
+      item: cartItem.menuItem,
+      quantity: cartItem.quantity,
+    }));
+
+  if (removableItems.length === 0) {
+    return null;
+  }
+
+  return {
+    type: 'removeAllExcept' as const,
+    items: removableItems,
+    keepItems,
+  };
 }
 
 function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartItems: CartItem[], hasPendingConfirmation = false): LocalVoiceIntent {
@@ -261,11 +370,28 @@ function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartIt
 
   const wantsRemove = /\b(quita|quitar|quita una|elimina|borra|cancela|sin)\b/.test(normalized);
   if (wantsRemove) {
+    const removeAllExceptIntent = extractRemoveAllExceptIntent(transcript, cartItems);
+    if (removeAllExceptIntent) {
+      return removeAllExceptIntent;
+    }
+
+    const multipleItems = extractMultipleRemoveIntents(transcript, cartItems);
+    const protectedItems = extractProtectedItems(transcript, cartItems);
+    const protectedIds = new Set(protectedItems.map((item) => item.id));
+    const filteredMultipleItems = multipleItems.filter((entry) => !protectedIds.has(entry.item.id));
+    if (filteredMultipleItems.length > 1) {
+      return { type: 'removeMany', items: filteredMultipleItems };
+    }
+
     const item = resolveMenuItemFromVoiceQuery(
       cartItems.map((cartItem) => cartItem.menuItem),
       transcript,
     );
-    return item ? { type: 'remove', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) } : { type: 'unknown' };
+    if (item && !protectedIds.has(item.id)) {
+      return { type: 'remove', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
+    }
+
+    return { type: 'unknown' };
   }
 
   const wantsAdd = /\b(pon|ponme|ponnos|trae|traeme|traenos|anade|añade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized);
@@ -935,6 +1061,44 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog('system', `Fallback local silencioso: quitadas ${intent.quantity} unidades de ${intent.item.name}.`);
+      finalizeTurnIfReady();
+      return true;
+    }
+
+    if (intent.type === 'removeMany') {
+      if (currentTurnRemovedFromOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      intent.items.forEach((entry) => {
+        onRemoveFromOrder(entry.item.name, entry.quantity);
+      });
+      resetPendingOrderConfirmation();
+      currentTurnRemovedFromOrderRef.current = true;
+      addLog(
+        'system',
+        `Fallback local silencioso: quitados ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
+      );
+      finalizeTurnIfReady();
+      return true;
+    }
+
+    if (intent.type === 'removeAllExcept') {
+      if (currentTurnRemovedFromOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      intent.items.forEach((entry) => {
+        onRemoveFromOrder(entry.item.name, entry.quantity);
+      });
+      resetPendingOrderConfirmation();
+      currentTurnRemovedFromOrderRef.current = true;
+      addLog(
+        'system',
+        `Fallback local silencioso: quitado todo excepto ${intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada'}.`,
+      );
       finalizeTurnIfReady();
       return true;
     }
