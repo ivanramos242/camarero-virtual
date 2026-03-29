@@ -1047,7 +1047,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             onClick={() => {
               void handleVoiceModalToggle();
             }}
-            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full border transition ${
+            className={`flex min-h-14 w-[84px] shrink-0 flex-col items-center justify-center gap-1 self-center rounded-full border px-2 py-2 transition ${
               isVoiceModalOpen
                 ? 'border-stone-900 bg-stone-900 text-white'
                 : 'border-stone-300 bg-white text-stone-900 shadow-sm shadow-stone-200/70'
@@ -1056,6 +1056,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             title={isVoiceModalOpen ? 'Cerrar camarero' : 'Abrir camarero'}
           >
             {isPreparingVoice ? <Loader2 size={18} className="animate-spin" /> : <UserRound size={20} strokeWidth={2.1} />}
+            <span className="text-[11px] font-semibold leading-none">Camarero</span>
           </button>
         ) : null}
       </div>
