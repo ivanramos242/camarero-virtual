@@ -526,6 +526,29 @@ export function useLiveSession({
     }
   }, []);
 
+  const requestMicrophoneAccess = useCallback(async () => {
+    if (!branding.voiceEnabled) {
+      throw new Error('La voz no esta disponible en este entorno.');
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Este dispositivo no permite acceder al microfono.');
+    }
+
+    let stream: MediaStream | null = null;
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      addLog('system', 'Microfono preparado.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo activar el microfono.';
+      addLog('error', message);
+      throw error;
+    } finally {
+      stream?.getTracks().forEach((track) => track.stop());
+    }
+  }, [addLog, branding.voiceEnabled]);
+
   const resetPendingOrderConfirmation = useCallback(() => {
     pendingOrderConfirmationRef.current = false;
     pendingOrderConfirmationSignatureRef.current = '';
@@ -1481,6 +1504,7 @@ export function useLiveSession({
   return {
     status,
     turnState,
+    requestMicrophoneAccess,
     beginPressToTalk,
     endPressToTalk,
     cancelCurrentResponse,
