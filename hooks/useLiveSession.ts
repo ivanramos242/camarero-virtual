@@ -449,6 +449,8 @@ export function useLiveSession({
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
+  const currentTurnHadAudioOutputRef = useRef(false);
+  const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const lastAssistantTextRef = useRef('');
   const lastOutputTranscriptRef = useRef('');
   const pendingEndSessionRef = useRef(false);
@@ -564,6 +566,7 @@ export function useLiveSession({
 
   const resetAssistantTurnTracking = useCallback(() => {
     playedAudioChunksRef.current.clear();
+    currentTurnHadAudioOutputRef.current = false;
     lastAssistantTextRef.current = '';
     lastOutputTranscriptRef.current = '';
     pendingEndSessionRef.current = false;
@@ -578,7 +581,15 @@ export function useLiveSession({
     lastAssistantOutputSignatureRef.current = '';
   }, []);
 
-  const cancelLocalSpeech = useCallback(() => {}, []);
+  const cancelLocalSpeech = useCallback(() => {
+    localSpeechUtteranceRef.current = null;
+
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+  }, []);
 
   const setPreferredAudioSession = useCallback((type: SupportedAudioSessionType) => {
     if (typeof navigator === 'undefined') {
@@ -1009,7 +1020,7 @@ export function useLiveSession({
   }, [getAudioContextClass]);
 
   const finalizeTurnIfReady = useCallback(() => {
-    if (sourcesRef.current.size > 0) {
+    if (sourcesRef.current.size > 0 || localSpeechUtteranceRef.current) {
       return;
     }
 
@@ -1023,6 +1034,68 @@ export function useLiveSession({
       }
     }
   }, [disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
+
+  const speakWithLocalVoice = useCallback(
+    (text: string) => {
+      const message = text.trim();
+      if (!message || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        return false;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(message);
+      const voices = window.speechSynthesis.getVoices();
+      const spanishVoice =
+        voices.find((voice) => voice.lang.toLowerCase().startsWith('es-es')) ??
+        voices.find((voice) => voice.lang.toLowerCase().startsWith('es')) ??
+        null;
+
+      if (spanishVoice) {
+        utterance.voice = spanishVoice;
+        utterance.lang = spanishVoice.lang;
+      } else {
+        utterance.lang = 'es-ES';
+      }
+
+      utterance.rate = 1;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      localSpeechUtteranceRef.current = utterance;
+      setTurnStateSafe('speaking');
+
+      utterance.onend = () => {
+        if (localSpeechUtteranceRef.current === utterance) {
+          localSpeechUtteranceRef.current = null;
+        }
+        if (sourcesRef.current.size === 0) {
+          finalizeTurnIfReady();
+        }
+      };
+
+      utterance.onerror = () => {
+        if (localSpeechUtteranceRef.current === utterance) {
+          localSpeechUtteranceRef.current = null;
+        }
+        finalizeTurnIfReady();
+      };
+
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      return true;
+    },
+    [finalizeTurnIfReady, setTurnStateSafe],
+  );
+
+  const speakFallbackMessage = useCallback(
+    (message: string) => {
+      currentTurnHadAssistantOutputRef.current = true;
+      lastAssistantTextRef.current = message;
+      lastOutputTranscriptRef.current = message;
+      setLastAssistantMessage(message);
+      addLog('assistant', message);
+      return speakWithLocalVoice(message);
+    },
+    [addLog, speakWithLocalVoice],
+  );
 
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
@@ -1045,9 +1118,12 @@ export function useLiveSession({
     onAddToCart(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
     addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
+    if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+      speakFallbackMessage(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
+    }
     finalizeTurnIfReady();
     return true;
-  }, [addLog, finalizeTurnIfReady, onAddToCart, resetPendingOrderConfirmation]);
+  }, [addLog, finalizeTurnIfReady, onAddToCart, resetPendingOrderConfirmation, speakFallbackMessage]);
 
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
@@ -1070,6 +1146,9 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
+      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+        speakFallbackMessage(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
+      }
       finalizeTurnIfReady();
       return true;
     }
@@ -1084,6 +1163,9 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog('system', `Fallback local silencioso: quitadas ${intent.quantity} unidades de ${intent.item.name}.`);
+      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+        speakFallbackMessage(`He quitado ${intent.quantity} ${intent.item.name} del pedido.`);
+      }
       finalizeTurnIfReady();
       return true;
     }
@@ -1103,6 +1185,9 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitados ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
       );
+      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+        speakFallbackMessage(`He actualizado el pedido y he quitado ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')}.`);
+      }
       finalizeTurnIfReady();
       return true;
     }
@@ -1122,12 +1207,16 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitado todo excepto ${intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada'}.`,
       );
+      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+        const keptItems = intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada';
+        speakFallbackMessage(`He quitado todo del pedido excepto ${keptItems}.`);
+      }
       finalizeTurnIfReady();
       return true;
     }
 
     return false;
-  }, [addLog, finalizeTurnIfReady, onAddToCart, onRemoveFromOrder, resetPendingOrderConfirmation]);
+  }, [addLog, finalizeTurnIfReady, onAddToCart, onRemoveFromOrder, resetPendingOrderConfirmation, speakFallbackMessage]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -1298,6 +1387,7 @@ export function useLiveSession({
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               currentTurnHadAssistantOutputRef.current = true;
+              currentTurnHadAudioOutputRef.current = true;
               if (isSafariBrowser()) {
                 setPreferredAudioSession('playback');
               }
@@ -1344,6 +1434,9 @@ export function useLiveSession({
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
               const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              if (!handledLocally && !currentTurnHadAudioOutputRef.current && lastAssistantTextRef.current.trim()) {
+                speakWithLocalVoice(lastAssistantTextRef.current);
+              }
               if (!handledLocally) {
                 finalizeTurnIfReady();
               }
@@ -1410,6 +1503,7 @@ export function useLiveSession({
     setStatusSafe,
     setTurnStateSafe,
     stopPlayback,
+    speakWithLocalVoice,
     systemInstruction,
   ]);
 
