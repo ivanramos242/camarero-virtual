@@ -1439,11 +1439,14 @@ export function useLiveSession({
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
               const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              const assistantClaimsMutation = assistantTextClaimsMutation(lastAssistantTextRef.current);
+              const hadVerifiedMutation =
+                currentTurnAddedToOrderRef.current || currentTurnRemovedFromOrderRef.current || currentTurnConfirmedOrderRef.current;
               const canSpeakAssistantText =
                 !handledLocally &&
                 !currentTurnHadAudioOutputRef.current &&
                 lastAssistantTextRef.current.trim() &&
-                (currentTurnHadToolCallRef.current || !assistantTextClaimsMutation(lastAssistantTextRef.current));
+                (!assistantClaimsMutation || hadVerifiedMutation);
               if (canSpeakAssistantText) {
                 speakWithLocalVoice(lastAssistantTextRef.current);
               }
