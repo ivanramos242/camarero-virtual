@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { fetchVoiceDiagnostics } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
+import { resolveMenuItemMatch } from '../utils/voiceMatching';
 
 interface UseLiveSessionProps {
   branding: AppBranding;
@@ -99,68 +100,18 @@ function tokenizeVoiceText(value: string) {
 }
 
 function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
-  const query = normalizeVoiceText(rawQuery);
-  const queryTokens = tokenizeVoiceText(rawQuery);
+  const match = resolveMenuItemMatch(items, rawQuery);
+  return match.requiresClarification ? null : match.item;
+}
 
-  if (!query) {
-    return null;
-  }
-
-  let bestMatch: { item: MenuItem; score: number } | null = null;
-
-  for (const item of items) {
-    if (!item.available) {
-      continue;
-    }
-
-    const name = normalizeVoiceText(item.name);
-    const category = normalizeVoiceText(item.category);
-    const ingredients = item.ingredients.map(normalizeVoiceText);
-    const haystack = [name, category, ...ingredients].join(' ');
-    const haystackTokens = new Set(tokenizeVoiceText(`${item.name} ${item.category} ${item.ingredients.join(' ')}`));
-
-    let score = 0;
-
-    if (name === query) {
-      score += 120;
-    }
-
-    if (name.includes(query) || query.includes(name)) {
-      score += 80;
-    }
-
-    for (const token of queryTokens) {
-      if (haystackTokens.has(token)) {
-        score += name.includes(token) ? 22 : 10;
-      } else if (haystack.includes(token)) {
-        score += 6;
-      }
-    }
-
-    if (queryTokens.length > 0) {
-      const matchedTokens = queryTokens.filter((token) => haystackTokens.has(token)).length;
-      score += (matchedTokens / queryTokens.length) * 35;
-    }
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { item, score };
-    }
-  }
-
-  return bestMatch && bestMatch.score >= 34 ? bestMatch.item : null;
+function findMenuItemMatch(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
+  const menuItemId = typeof args.menuItemId === 'string' ? args.menuItemId.trim() : '';
+  const rawName = typeof args[nameKey] === 'string' ? args[nameKey] : '';
+  return resolveMenuItemMatch(items, rawName, menuItemId);
 }
 
 function findMenuItem(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
-  const menuItemId = typeof args.menuItemId === 'string' ? args.menuItemId.trim() : '';
-  if (menuItemId) {
-    const exactById = items.find((item) => item.available && item.id === menuItemId);
-    if (exactById) {
-      return exactById;
-    }
-  }
-
-  const rawName = typeof args[nameKey] === 'string' ? args[nameKey] : '';
-  return resolveMenuItemFromVoiceQuery(items, rawName);
+  return findMenuItemMatch(items, args, nameKey).item;
 }
 
 function summarizeCartItems(items: CartItem[]) {
@@ -853,7 +804,8 @@ export function useLiveSession({
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? args.notes : undefined;
-        const item = findMenuItem(menuRef.current, args);
+        const match = findMenuItemMatch(menuRef.current, args);
+        const item = match.item;
         pendingAddFallbackRef.current = {
           itemName: typeof args.itemName === 'string' ? args.itemName : undefined,
           menuItemId: typeof args.menuItemId === 'string' ? args.menuItemId : undefined,
@@ -862,7 +814,13 @@ export function useLiveSession({
         };
 
         if (!item) {
-          result = { success: false, error: `No he podido identificar el plato "${itemName}" en la carta actual.` };
+          const suggestions = match.candidates.slice(0, 3).map((candidate) => candidate.name).join(', ');
+          result = {
+            success: false,
+            error: suggestions
+              ? `No tengo claro que plato es "${itemName}". Quiza te refieres a: ${suggestions}.`
+              : `No he podido identificar el plato "${itemName}" en la carta actual.`,
+          };
           addLog('error', result.error);
         } else {
           onAddToCart(item, quantity, notes);
@@ -887,13 +845,20 @@ export function useLiveSession({
       } else if (name === 'removeFromOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
-        const item = findMenuItem(
+        const match = findMenuItemMatch(
           cartItemsRef.current.map((cartItem) => cartItem.menuItem),
           args,
         );
+        const item = match.item;
 
         if (!item) {
-          result = { success: false, error: `No he encontrado "${itemName}" dentro del pedido actual.` };
+          const suggestions = match.candidates.slice(0, 3).map((candidate) => candidate.name).join(', ');
+          result = {
+            success: false,
+            error: suggestions
+              ? `No tengo claro que plato quieres quitar cuando dices "${itemName}". Quiza te refieres a: ${suggestions}.`
+              : `No he encontrado "${itemName}" dentro del pedido actual.`,
+          };
           addLog('error', result.error);
         } else {
           onRemoveFromOrder(item.name, quantity);
