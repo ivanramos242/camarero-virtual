@@ -832,6 +832,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const handleVoiceModalToggle = useCallback(async () => {
     if (isVoiceModalOpen) {
       setIsVoiceModalOpen(false);
+      setIsPreparingVoice(false);
       voiceSession.disconnect();
       return;
     }
@@ -848,6 +849,32 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setIsPreparingVoice(false);
     }
   }, [isVoiceModalOpen, voiceSession]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') {
+      return;
+    }
+
+    const resetVoiceUi = () => {
+      setIsPreparingVoice(false);
+      setIsVoiceModalOpen(false);
+      voiceSession.disconnect();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        resetVoiceUi();
+      }
+    };
+
+    window.addEventListener('pagehide', resetVoiceUi);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', resetVoiceUi);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [voiceSession]);
 
   useEffect(() => {
     if (!isSessionModalOpen && !isCartOpen && !isWifiModalOpen) {
