@@ -1075,7 +1075,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             onClick={() => {
               void handleVoiceModalToggle();
             }}
-            className={`flex min-h-14 w-[84px] shrink-0 flex-col items-center justify-center gap-1 self-center rounded-full border px-2 py-2 transition ${
+            data-open={isVoiceModalOpen ? 'true' : 'false'}
+            className={`camarero-toggle flex min-h-14 w-[84px] shrink-0 flex-col items-center justify-center gap-1 self-center rounded-full border px-2 py-2 ${
               isVoiceModalOpen
                 ? 'border-stone-900 bg-stone-900 text-white'
                 : 'border-stone-300 bg-white text-stone-900 shadow-sm shadow-stone-200/70'
@@ -1083,8 +1084,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             aria-label={isVoiceModalOpen ? 'Cerrar camarero' : 'Abrir camarero'}
             title={isVoiceModalOpen ? 'Cerrar camarero' : 'Abrir camarero'}
           >
-            {isPreparingVoice ? <Loader2 size={18} className="animate-spin" /> : <UserRound size={20} strokeWidth={2.1} />}
-            <span className="text-[11px] font-semibold leading-none">Camarero</span>
+            {isPreparingVoice ? (
+              <Loader2 size={18} className="camarero-toggle__icon animate-spin" />
+            ) : (
+              <UserRound size={20} strokeWidth={2.1} className="camarero-toggle__icon" />
+            )}
+            <span className="camarero-toggle__label text-[11px] font-semibold leading-none">Camarero</span>
           </button>
         ) : null}
       </div>
@@ -1456,7 +1461,7 @@ function AssistantPanel({
 
   return (
     <div
-      className={`pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 justify-center px-4 lg:bottom-[16vh] ${
+      className={`voice-orb-dock pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 justify-center px-4 lg:bottom-[16vh] ${
         mobileVisible ? 'flex lg:flex' : 'hidden lg:flex'
       }`}
     >

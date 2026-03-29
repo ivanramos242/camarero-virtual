@@ -629,6 +629,54 @@ button {
   transition: font-size 220ms var(--voice-motion-soft), line-height 220ms var(--voice-motion-soft), opacity 180ms var(--voice-motion-soft), transform 180ms var(--voice-motion-soft);
 }
 
+.camarero-toggle {
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.camarero-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.camarero-toggle:active {
+  transform: scale(0.97);
+}
+
+.camarero-toggle__icon,
+.camarero-toggle__label {
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.camarero-toggle[data-open='true'] {
+  box-shadow:
+    0 10px 24px rgba(24, 24, 27, 0.18),
+    0 2px 6px rgba(24, 24, 27, 0.14);
+}
+
+.camarero-toggle[data-open='true'] .camarero-toggle__icon {
+  transform: translateY(-1px) scale(1.06);
+}
+
+.camarero-toggle[data-open='true'] .camarero-toggle__label {
+  transform: translateY(1px);
+}
+
+.voice-orb-dock {
+  transform-origin: bottom center;
+}
+
+@media (max-width: 1023px) {
+  .voice-orb-dock {
+    animation: voice-helper-fade 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
 .voice-orb[data-pressed='true'] + .voice-orb__helper,
 .voice-orb[data-state='listening'] + .voice-orb__helper {
   font-size: 15px;
