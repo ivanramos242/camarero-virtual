@@ -13,7 +13,6 @@ import {
   ClipboardList,
   ChefHat,
   Copy,
-  HandPlatter,
   Loader2,
   Mic,
   QrCode,
@@ -21,6 +20,7 @@ import {
   Shield,
   Store,
   TerminalSquare,
+  UserRound,
   X,
 } from 'lucide-react';
 
@@ -1047,14 +1047,15 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             onClick={() => {
               void handleVoiceModalToggle();
             }}
-            className={`flex min-h-14 min-w-[112px] items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full border transition ${
               isVoiceModalOpen
                 ? 'border-stone-900 bg-stone-900 text-white'
                 : 'border-stone-300 bg-white text-stone-900 shadow-sm shadow-stone-200/70'
             }`}
+            aria-label={isVoiceModalOpen ? 'Cerrar camarero' : 'Abrir camarero'}
+            title={isVoiceModalOpen ? 'Cerrar camarero' : 'Abrir camarero'}
           >
-            {isPreparingVoice ? <Loader2 size={16} className="animate-spin" /> : <HandPlatter size={18} strokeWidth={2.1} />}
-            <span>Camarero</span>
+            {isPreparingVoice ? <Loader2 size={18} className="animate-spin" /> : <UserRound size={20} strokeWidth={2.1} />}
           </button>
         ) : null}
       </div>
