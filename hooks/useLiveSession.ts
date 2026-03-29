@@ -1444,6 +1444,16 @@ export function useLiveSession({
     }
   }, [addLog, branding.voiceEnabled, clearCaptureTeardownTimeout, ensureGeminiSession, runVoiceDiagnostics, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, startRecordingInternal]);
 
+  const prepareVoiceSession = useCallback(async () => {
+    if (!branding.voiceEnabled) {
+      throw new Error('La voz no esta disponible en este entorno.');
+    }
+
+    clearCaptureTeardownTimeout();
+    await ensureGeminiSession();
+    await ensureAudioPipeline();
+  }, [branding.voiceEnabled, clearCaptureTeardownTimeout, ensureAudioPipeline, ensureGeminiSession]);
+
   const endPressToTalk = useCallback(() => {
     pendingPressRef.current = false;
 
@@ -1505,6 +1515,7 @@ export function useLiveSession({
     status,
     turnState,
     requestMicrophoneAccess,
+    prepareVoiceSession,
     beginPressToTalk,
     endPressToTalk,
     cancelCurrentResponse,

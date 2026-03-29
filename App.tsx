@@ -840,6 +840,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
     try {
       await voiceSession.requestMicrophoneAccess();
+      await voiceSession.prepareVoiceSession();
       setIsVoiceModalOpen(true);
     } catch {
       setIsVoiceModalOpen(false);
