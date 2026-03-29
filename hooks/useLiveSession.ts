@@ -191,6 +191,11 @@ function isExplicitFinalConfirmation(transcript: string) {
   return /\b(si|sí|confirmo|confirmar|confirmar pedido|correcto|perfecto|adelante|vale|ok|de acuerdo|envialo|mandalo)\b/.test(normalized);
 }
 
+function assistantTextClaimsMutation(text: string) {
+  const normalized = normalizeVoiceText(text);
+  return /\b(anadid|agregad|quitad|eliminad|borrad|actualizad|confirmad|enviad|hecho|listo)\b/.test(normalized);
+}
+
 function parseVoiceQuantity(rawText: string) {
   const normalized = normalizeVoiceText(rawText);
   const digitMatch = normalized.match(/\b([1-9]|10|11|12)\b/);
@@ -1118,7 +1123,7 @@ export function useLiveSession({
     onAddToCart(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
     addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
-    if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+    if (!currentTurnHadAudioOutputRef.current) {
       speakFallbackMessage(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
     }
     finalizeTurnIfReady();
@@ -1146,7 +1151,7 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
-      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+      if (!currentTurnHadAudioOutputRef.current) {
         speakFallbackMessage(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
       }
       finalizeTurnIfReady();
@@ -1163,7 +1168,7 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog('system', `Fallback local silencioso: quitadas ${intent.quantity} unidades de ${intent.item.name}.`);
-      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+      if (!currentTurnHadAudioOutputRef.current) {
         speakFallbackMessage(`He quitado ${intent.quantity} ${intent.item.name} del pedido.`);
       }
       finalizeTurnIfReady();
@@ -1185,7 +1190,7 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitados ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
       );
-      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+      if (!currentTurnHadAudioOutputRef.current) {
         speakFallbackMessage(`He actualizado el pedido y he quitado ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')}.`);
       }
       finalizeTurnIfReady();
@@ -1207,7 +1212,7 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitado todo excepto ${intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada'}.`,
       );
-      if (!currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current) {
+      if (!currentTurnHadAudioOutputRef.current) {
         const keptItems = intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada';
         speakFallbackMessage(`He quitado todo del pedido excepto ${keptItems}.`);
       }
@@ -1434,7 +1439,12 @@ export function useLiveSession({
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
               const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
-              if (!handledLocally && !currentTurnHadAudioOutputRef.current && lastAssistantTextRef.current.trim()) {
+              const canSpeakAssistantText =
+                !handledLocally &&
+                !currentTurnHadAudioOutputRef.current &&
+                lastAssistantTextRef.current.trim() &&
+                (currentTurnHadToolCallRef.current || !assistantTextClaimsMutation(lastAssistantTextRef.current));
+              if (canSpeakAssistantText) {
                 speakWithLocalVoice(lastAssistantTextRef.current);
               }
               if (!handledLocally) {
