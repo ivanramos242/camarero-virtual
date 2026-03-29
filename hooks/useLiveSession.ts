@@ -455,6 +455,7 @@ export function useLiveSession({
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const currentTurnHadAudioOutputRef = useRef(false);
+  const lastSpokenOutputSignatureRef = useRef('');
   const localSpeechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const lastAssistantTextRef = useRef('');
   const lastOutputTranscriptRef = useRef('');
@@ -572,6 +573,7 @@ export function useLiveSession({
   const resetAssistantTurnTracking = useCallback(() => {
     playedAudioChunksRef.current.clear();
     currentTurnHadAudioOutputRef.current = false;
+    lastSpokenOutputSignatureRef.current = '';
     lastAssistantTextRef.current = '';
     lastOutputTranscriptRef.current = '';
     pendingEndSessionRef.current = false;
@@ -1047,6 +1049,12 @@ export function useLiveSession({
         return false;
       }
 
+      const signature = normalizeVoiceText(message);
+      if (!signature || signature === lastSpokenOutputSignatureRef.current) {
+        return false;
+      }
+      lastSpokenOutputSignatureRef.current = signature;
+
       const utterance = new SpeechSynthesisUtterance(message);
       const voices = window.speechSynthesis.getVoices();
       const spanishVoice =
@@ -1393,6 +1401,9 @@ export function useLiveSession({
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               currentTurnHadAssistantOutputRef.current = true;
               currentTurnHadAudioOutputRef.current = true;
+              if (localSpeechUtteranceRef.current) {
+                cancelLocalSpeech();
+              }
               if (isSafariBrowser()) {
                 setPreferredAudioSession('playback');
               }
@@ -1516,6 +1527,7 @@ export function useLiveSession({
     setStatusSafe,
     setTurnStateSafe,
     stopPlayback,
+    cancelLocalSpeech,
     speakWithLocalVoice,
     systemInstruction,
   ]);
