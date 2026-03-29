@@ -824,6 +824,10 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     const latestError = [...voiceSession.logs].reverse().find((log) => log.role === 'error');
     return latestError?.text ?? null;
   }, [voiceSession.logs]);
+  const voiceDisabled = Boolean(menuError) || isPreparingVoice;
+  const voiceDisabledMessage = isPreparingVoice
+    ? 'Preparando el microfono...'
+    : menuError || '';
 
   const handleVoiceModalToggle = useCallback(async () => {
     if (isVoiceModalOpen) {
@@ -941,8 +945,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
               {branding.voiceEnabled ? (
                 <AssistantPanel
                   assistantName={branding.assistantName}
-                  disabled={!menuReady}
-                  disabledMessage={menuLoading ? 'Cargando carta para la sesion de voz...' : menuError || 'No hay carta disponible.'}
+                  disabled={voiceDisabled}
+                  disabledMessage={voiceDisabledMessage}
                   lastAssistantMessage={voiceSession.lastAssistantMessage}
                   latestError={latestVoiceError}
                   logs={voiceSession.logs}
@@ -1128,14 +1132,8 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
             <AssistantPanel
               assistantName={branding.assistantName}
-              disabled={!menuReady || isPreparingVoice}
-              disabledMessage={
-                isPreparingVoice
-                  ? 'Preparando el microfono...'
-                  : menuLoading
-                    ? 'Cargando carta para la sesion de voz...'
-                    : menuError || 'No hay carta disponible.'
-              }
+              disabled={voiceDisabled}
+              disabledMessage={voiceDisabledMessage}
               lastAssistantMessage={voiceSession.lastAssistantMessage}
               latestError={latestVoiceError}
               logs={voiceSession.logs}
