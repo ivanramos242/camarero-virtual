@@ -1429,15 +1429,6 @@ function AssistantPanel({
         : isSpeaking
           ? 'Escucha'
           : 'Mantén para hablar';
-  const helperLabel = hasIssue
-    ? disabledMessage || latestError || 'El canal de voz no esta disponible ahora.'
-    : isListening || isPressingToTalk
-      ? 'Te estoy escuchando. Suelta cuando termines.'
-      : isProcessing
-        ? 'Estoy preparando la respuesta.'
-        : isSpeaking
-          ? 'Ramiro esta respondiendo en voz.'
-          : 'Pulsa y mantén para pedir, preguntar o llamar al camarero.';
   const orbState = hasIssue
     ? 'error'
     : isListening
@@ -1536,12 +1527,6 @@ function AssistantPanel({
             {status === 'connected' ? 'Doble toque para cerrar la sesion de voz.' : ''}
           </span>
         </button>
-        <p
-          className="voice-orb__helper max-w-[20rem] px-2 text-center text-[13px] font-medium leading-[1.35] text-stone-700"
-          aria-live="polite"
-        >
-          {helperLabel}
-        </p>
       </div>
     </div>
   );
