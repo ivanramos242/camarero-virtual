@@ -837,19 +837,19 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     }
 
     setIsPreparingVoice(true);
-    setIsVoiceModalOpen(true);
 
     try {
       await voiceSession.requestMicrophoneAccess();
+      setIsVoiceModalOpen(true);
     } catch {
-      // El error ya queda en el estado/logs de voz; mantenemos el modal abierto para que el usuario vea el problema.
+      setIsVoiceModalOpen(false);
     } finally {
       setIsPreparingVoice(false);
     }
   }, [isVoiceModalOpen, voiceSession]);
 
   useEffect(() => {
-    if (!isSessionModalOpen && !isCartOpen && !isWifiModalOpen && !isVoiceModalOpen) {
+    if (!isSessionModalOpen && !isCartOpen && !isWifiModalOpen) {
       return;
     }
 
@@ -859,7 +859,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     return () => {
       document.body.style.overflow = previousOverflow;
     };
-  }, [isCartOpen, isSessionModalOpen, isVoiceModalOpen, isWifiModalOpen]);
+  }, [isCartOpen, isSessionModalOpen, isWifiModalOpen]);
 
   const viewTabs = useMemo(() => {
     const tabs: Array<{ value: DiningView; label: string; icon: typeof Mic }> = [];
@@ -957,6 +957,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
                   onDisconnect={voiceSession.disconnect}
                   showDebug={debugEnabled}
                   volumeLevel={voiceSession.volumeLevel}
+                  mobileVisible={isVoiceModalOpen}
                 />
               ) : null}
 
@@ -1100,55 +1101,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </div>
       ) : null}
 
-      {branding.voiceEnabled && isVoiceModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 bg-stone-950/40 lg:hidden"
-          onClick={() => {
-            setIsVoiceModalOpen(false);
-            voiceSession.disconnect();
-          }}
-        >
-          <div
-            className="absolute inset-x-0 bottom-0 rounded-t-[24px] bg-[var(--bg)] px-4 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-4"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-stone-300" />
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-base font-semibold text-stone-900">Camarero</p>
-                <p className="mt-1 text-sm text-stone-500">Habla con Ramiro para pedir, preguntar o confirmar la comanda.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsVoiceModalOpen(false);
-                  voiceSession.disconnect();
-                }}
-                className="rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-700 transition hover:bg-stone-50"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <AssistantPanel
-              assistantName={branding.assistantName}
-              disabled={voiceDisabled}
-              disabledMessage={voiceDisabledMessage}
-              lastAssistantMessage={voiceSession.lastAssistantMessage}
-              latestError={latestVoiceError}
-              logs={voiceSession.logs}
-              status={voiceSession.status}
-              turnState={voiceSession.turnState}
-              onBeginPressToTalk={voiceSession.beginPressToTalk}
-              onEndPressToTalk={voiceSession.endPressToTalk}
-              onDisconnect={voiceSession.disconnect}
-              showDebug={debugEnabled}
-              volumeLevel={voiceSession.volumeLevel}
-              inline
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1393,7 +1345,7 @@ interface AssistantPanelProps {
   onDisconnect: () => void;
   showDebug: boolean;
   volumeLevel: number;
-  inline?: boolean;
+  mobileVisible?: boolean;
 }
 
 function AssistantPanel({
@@ -1410,7 +1362,7 @@ function AssistantPanel({
   onDisconnect,
   showDebug,
   volumeLevel,
-  inline = false,
+  mobileVisible = false,
 }: AssistantPanelProps) {
   const [isPointerPressed, setIsPointerPressed] = useState(false);
   const isConnecting = status === 'connecting';
@@ -1474,13 +1426,11 @@ function AssistantPanel({
 
   return (
     <div
-      className={
-        inline
-          ? 'relative flex justify-center px-1 pb-1'
-          : 'pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 hidden justify-center px-4 lg:flex lg:bottom-[16vh]'
-      }
+      className={`pointer-events-none fixed inset-x-0 bottom-[max(env(safe-area-inset-bottom)+84px,14vh)] z-30 justify-center px-4 lg:bottom-[16vh] ${
+        mobileVisible ? 'flex lg:flex' : 'hidden lg:flex'
+      }`}
     >
-      <div className={`${inline ? 'w-full' : 'pointer-events-auto'} relative flex flex-col items-center gap-3`}>
+      <div className="pointer-events-auto relative flex flex-col items-center gap-3">
         <button
           type="button"
           aria-label={accessibilityLabel}
@@ -1556,11 +1506,6 @@ function AssistantPanel({
         >
           {helperLabel}
         </p>
-        {inline && lastAssistantMessage ? (
-          <div className="w-full max-w-[22rem] rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm leading-6 text-stone-700">
-            {lastAssistantMessage}
-          </div>
-        ) : null}
       </div>
     </div>
   );
