@@ -1064,7 +1064,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           <span className="block text-xs text-stone-300">Pedido actual</span>
           <span className="mt-1 flex items-center justify-between gap-3">
             <span className="min-w-0 text-sm font-medium">
-              {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aun no has anadido platos'}
+              {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aun no has añadido platos'}
             </span>
             <span className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold">{totalPrice.toFixed(2)} €</span>
           </span>
@@ -1090,7 +1090,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
             ) : (
               <UserRound size={20} strokeWidth={2.1} className="camarero-toggle__icon" />
             )}
-            <span className="camarero-toggle__label text-[11px] font-semibold leading-none">Camarero</span>
+            <span className="camarero-toggle__label text-[11px] font-semibold leading-none">Camarero IA</span>
           </button>
         ) : null}
       </div>
