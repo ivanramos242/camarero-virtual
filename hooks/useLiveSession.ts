@@ -53,6 +53,7 @@ const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
 const MAX_AUTO_RECONNECT_ATTEMPTS = 2;
+const TURN_RECOVERY_TIMEOUT_MS = 15_000;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -221,6 +222,10 @@ function isSafariBrowser() {
 
   const userAgent = navigator.userAgent;
   return /safari/i.test(userAgent) && !/chrome|chromium|crios|fxios|edgios|opr\//i.test(userAgent);
+}
+
+function shouldKeepCaptureWarm() {
+  return isMobileBrowser() || isSafariBrowser();
 }
 
 type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
@@ -480,6 +485,7 @@ export function useLiveSession({
   const turnStateRef = useRef<VoiceTurnState>('idle');
   const hasRunDiagnosticsRef = useRef(false);
   const captureTeardownTimeoutRef = useRef<number | null>(null);
+  const turnRecoveryTimeoutRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
@@ -491,6 +497,7 @@ export function useLiveSession({
   const pendingEndSessionRef = useRef(false);
   const latestInputTranscriptRef = useRef('');
   const currentTurnHadToolCallRef = useRef(false);
+  const processedToolCallIdsRef = useRef<Set<string>>(new Set());
   const currentTurnLocallyHandledRef = useRef(false);
   const currentTurnAddedToOrderRef = useRef(false);
   const currentTurnRemovedFromOrderRef = useRef(false);
@@ -555,6 +562,13 @@ export function useLiveSession({
     if (captureTeardownTimeoutRef.current) {
       window.clearTimeout(captureTeardownTimeoutRef.current);
       captureTeardownTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearTurnRecoveryTimeout = useCallback(() => {
+    if (turnRecoveryTimeoutRef.current) {
+      window.clearTimeout(turnRecoveryTimeoutRef.current);
+      turnRecoveryTimeoutRef.current = null;
     }
   }, []);
 
@@ -693,6 +707,7 @@ export function useLiveSession({
     pendingEndSessionRef.current = false;
     latestInputTranscriptRef.current = '';
     currentTurnHadToolCallRef.current = false;
+    processedToolCallIdsRef.current.clear();
     currentTurnLocallyHandledRef.current = false;
     currentTurnAddedToOrderRef.current = false;
     currentTurnRemovedFromOrderRef.current = false;
@@ -779,6 +794,7 @@ export function useLiveSession({
     (nextStatus: ConnectionStatus) => {
       clearRecordingTimeout();
       clearCaptureTeardownTimeout();
+      clearTurnRecoveryTimeout();
       clearReconnectTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
@@ -811,7 +827,7 @@ export function useLiveSession({
       setStatusSafe(nextStatus);
       setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, clearReconnectTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -1137,16 +1153,43 @@ export function useLiveSession({
       return;
     }
 
+    clearTurnRecoveryTimeout();
+
     if (turnStateRef.current !== 'recording') {
       setTurnStateSafe('idle');
       setVolumeLevel(0);
-      scheduleAudioCaptureTeardown();
+      if (shouldKeepCaptureWarm()) {
+        clearCaptureTeardownTimeout();
+      } else {
+        scheduleAudioCaptureTeardown();
+      }
       if (pendingEndSessionRef.current) {
         pendingEndSessionRef.current = false;
         disconnect();
       }
     }
-  }, [disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
+  }, [clearCaptureTeardownTimeout, clearTurnRecoveryTimeout, disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
+
+  const scheduleTurnRecovery = useCallback(
+    (reason: string) => {
+      clearTurnRecoveryTimeout();
+      turnRecoveryTimeoutRef.current = window.setTimeout(() => {
+        if (turnStateRef.current !== 'processing' && turnStateRef.current !== 'speaking') {
+          return;
+        }
+
+        addLog('error', `Ramiro ha recuperado el turno tras un bloqueo de audio (${reason}).`);
+        stopPlayback();
+        cancelLocalSpeech();
+        sourcesRef.current.clear();
+        localSpeechUtteranceRef.current = null;
+        setTurnStateSafe('idle');
+        setVolumeLevel(0);
+        scheduleAudioCaptureTeardown();
+      }, TURN_RECOVERY_TIMEOUT_MS);
+    },
+    [addLog, cancelLocalSpeech, clearTurnRecoveryTimeout, scheduleAudioCaptureTeardown, setTurnStateSafe, stopPlayback],
+  );
 
   const speakWithLocalVoice = useCallback(
     (text: string) => {
@@ -1180,6 +1223,7 @@ export function useLiveSession({
       utterance.volume = 1;
       localSpeechUtteranceRef.current = utterance;
       setTurnStateSafe('speaking');
+      scheduleTurnRecovery('voz local');
 
       utterance.onend = () => {
         if (localSpeechUtteranceRef.current === utterance) {
@@ -1201,7 +1245,7 @@ export function useLiveSession({
       window.speechSynthesis.speak(utterance);
       return true;
     },
-    [finalizeTurnIfReady, setTurnStateSafe],
+    [finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
   );
 
   const speakFallbackMessage = useCallback(
@@ -1447,6 +1491,7 @@ export function useLiveSession({
     }
 
     clearRecordingTimeout();
+    clearTurnRecoveryTimeout();
     pendingPressRef.current = true;
     cancelCurrentResponse();
     cancelLocalSpeech();
@@ -1477,7 +1522,7 @@ export function useLiveSession({
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, resetAssistantTurnTracking, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {
@@ -1583,6 +1628,11 @@ export function useLiveSession({
               const responses = [];
 
               for (const functionCall of message.toolCall.functionCalls) {
+                if (processedToolCallIdsRef.current.has(functionCall.id)) {
+                  continue;
+                }
+
+                processedToolCallIdsRef.current.add(functionCall.id);
                 const result = await runTool(functionCall.name, (functionCall.args as Record<string, unknown>) ?? {});
                 responses.push({
                   id: functionCall.id,
@@ -1591,7 +1641,9 @@ export function useLiveSession({
                 });
               }
 
-              geminiSessionRef.current?.sendToolResponse({ functionResponses: responses });
+              if (responses.length > 0) {
+                geminiSessionRef.current?.sendToolResponse({ functionResponses: responses });
+              }
             }
 
             const audioParts = message.serverContent?.modelTurn?.parts?.filter(
@@ -1621,21 +1673,29 @@ export function useLiveSession({
                 playedAudioChunksRef.current.add(base64Audio);
                 nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
 
-                const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(playbackGainRef.current ?? audioContext.destination);
-                source.start(nextStartTimeRef.current);
-                nextStartTimeRef.current += audioBuffer.duration;
-                setTurnStateSafe('speaking');
+                try {
+                  const audioBuffer = await decodeAudioData(base64ToUint8Array(base64Audio), audioContext, 24_000);
+                  const source = audioContext.createBufferSource();
+                  source.buffer = audioBuffer;
+                  source.connect(playbackGainRef.current ?? audioContext.destination);
+                  source.start(nextStartTimeRef.current);
+                  nextStartTimeRef.current += audioBuffer.duration;
+                  setTurnStateSafe('speaking');
+                  scheduleTurnRecovery('audio remoto');
 
-                sourcesRef.current.add(source);
-                source.onended = () => {
-                  sourcesRef.current.delete(source);
-                  if (modelTurnCompleteRef.current) {
-                    finalizeTurnIfReady();
-                  }
-                };
+                  sourcesRef.current.add(source);
+                  source.onended = () => {
+                    sourcesRef.current.delete(source);
+                    if (modelTurnCompleteRef.current) {
+                      finalizeTurnIfReady();
+                    }
+                  };
+                } catch (error) {
+                  addLog(
+                    'error',
+                    error instanceof Error ? `No se pudo reproducir un fragmento de audio de Ramiro: ${error.message}` : 'No se pudo reproducir un fragmento de audio de Ramiro.',
+                  );
+                }
               }
             }
 
@@ -1644,6 +1704,7 @@ export function useLiveSession({
               cancelLocalSpeech();
               resetAssistantTurnTracking();
               addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
+              finalizeTurnIfReady();
             }
 
             if (message.serverContent?.turnComplete) {
@@ -1792,6 +1853,7 @@ export function useLiveSession({
     }
 
     clearRecordingTimeout();
+    clearTurnRecoveryTimeout();
     shouldStreamAudioRef.current = false;
     geminiSessionRef.current.sendRealtimeInput({ activityEnd: {} });
     if (isSafariBrowser()) {
@@ -1805,9 +1867,10 @@ export function useLiveSession({
       }, SAFARI_CAPTURE_RELEASE_MS);
     }
     setTurnStateSafe('processing');
+    scheduleTurnRecovery('espera de respuesta');
     setVolumeLevel(0);
     addLog('system', 'Audio enviado a Ramiro.');
-  }, [addLog, clearRecordingTimeout, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, clearRecordingTimeout, clearTurnRecoveryTimeout, scheduleTurnRecovery, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
 
   useEffect(() => {
     if (

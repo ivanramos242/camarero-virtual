@@ -1460,7 +1460,7 @@ function AssistantPanel({
           : 'Mantén para hablar';
   const orbState = hasIssue
     ? 'error'
-    : isListening
+    : isListening || isPressingToTalk
       ? 'listening'
       : isProcessing
         ? 'processing'
