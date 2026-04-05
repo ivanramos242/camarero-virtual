@@ -59,6 +59,7 @@ const orderStatusValues = ['pending', 'cooking', 'ready', 'served'] as const sat
 const allowedUploadMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 const createOrderSchema = z.object({
+  requestId: z.string().trim().min(1).max(80).optional(),
   tableNumber: z.string().trim().min(1).max(16),
   clientName: z.string().trim().max(80).optional(),
   diners: z.coerce.number().int().min(1).max(24),

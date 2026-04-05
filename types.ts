@@ -42,6 +42,7 @@ export interface OrderLine {
 
 export interface PersistedOrder {
   id: string;
+  requestId?: string;
   tableNumber: string;
   clientName: string;
   diners: number;
@@ -66,6 +67,7 @@ export interface CreateOrderItemInput {
 }
 
 export interface CreateOrderRequest {
+  requestId?: string;
   tableNumber: string;
   clientName?: string;
   diners: number;

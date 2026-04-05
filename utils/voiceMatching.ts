@@ -35,6 +35,16 @@ const VOICE_STOP_WORDS = new Set([
   'platos',
   'racion',
   'ración',
+  'quita',
+  'quitar',
+  'elimina',
+  'borra',
+  'cancela',
+  'confirma',
+  'confirmar',
+  'correcto',
+  'ya',
+  'estaria',
 ]);
 
 export interface VoiceMenuMatch {

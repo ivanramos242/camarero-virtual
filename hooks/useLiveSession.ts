@@ -14,6 +14,7 @@ import type {
 } from '../types';
 import { fetchVoiceDiagnostics } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
+import { buildCartSignature, summarizeCartItems } from '../utils/cartState';
 import { resolveMenuItemMatch } from '../utils/voiceMatching';
 
 interface UseLiveSessionProps {
@@ -21,8 +22,14 @@ interface UseLiveSessionProps {
   tableNumber: string;
   menu: MenuItem[];
   createSessionToken: () => Promise<SessionTokenResponse>;
-  onAddToCart: (item: MenuItem, quantity: number, notes?: string) => void;
-  onRemoveFromOrder: (itemName: string, quantity?: number) => void;
+  onAddToCart: (item: MenuItem, quantity: number, notes?: string) => CartItem[];
+  onRemoveFromOrder: (menuItemId: string, quantity?: number, itemName?: string, notes?: string) => {
+    items: CartItem[];
+    removedQuantity: number;
+    matched: boolean;
+    requiresClarification?: boolean;
+    matchingLines?: CartItem[];
+  };
   onConfirmOrder: (diners: number, name: string, items?: CartItem[]) => Promise<boolean>;
   onSetDiners: (count: number, name?: string) => void;
   cartItems: CartItem[];
@@ -35,6 +42,7 @@ interface ToolResult {
   message?: string;
   error?: string;
   count?: number;
+  confirmationPending?: boolean;
 }
 
 const MAX_RECORDING_MS = 120_000;
@@ -80,6 +88,16 @@ const VOICE_STOP_WORDS = new Set([
   'platos',
   'racion',
   'ración',
+  'quita',
+  'quitar',
+  'elimina',
+  'borra',
+  'cancela',
+  'confirma',
+  'confirmar',
+  'correcto',
+  'ya',
+  'estaria',
 ]);
 
 function normalizeVoiceText(value: string) {
@@ -114,27 +132,20 @@ function findMenuItem(items: MenuItem[], args: Record<string, unknown>, nameKey:
   return findMenuItemMatch(items, args, nameKey).item;
 }
 
-function summarizeCartItems(items: CartItem[]) {
-  if (items.length === 0) {
-    return 'Pedido vacio.';
-  }
-
-  return items.map((item) => `${item.quantity}x ${item.menuItem.name}`).join(', ');
-}
-
-function buildCartSignature(items: CartItem[]) {
-  return items
-    .map((item) => `${item.menuItem.id}:${item.quantity}:${(item.notes || '').trim().toLowerCase()}`)
-    .sort()
-    .join('|');
-}
-
 function buildOrderConfirmationPrompt(items: CartItem[]) {
   if (items.length === 0) {
     return 'No veo ningun plato en el pedido todavia.';
   }
 
   return `Resumen del pedido: ${summarizeCartItems(items)}. Si esta todo correcto, di confirmar pedido para enviarlo a cocina.`;
+}
+
+function buildRemoveClarificationMessage(itemName: string, matchingLines: CartItem[]) {
+  const variants = matchingLines
+    .map((line) => `${line.quantity}x ${line.menuItem.name}${line.notes ? ` (${line.notes})` : ''}`)
+    .join(', ');
+
+  return `Tengo varias lineas para ${itemName}: ${variants}. Dime cual quieres quitar exactamente.`;
 }
 
 function isExplicitFinalConfirmation(transcript: string) {
@@ -342,7 +353,13 @@ function extractRemoveAllExceptIntent(transcript: string, cartItems: CartItem[])
   };
 }
 
-function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartItems: CartItem[], hasPendingConfirmation = false): LocalVoiceIntent {
+export function parseLocalVoiceIntent(
+  transcript: string,
+  menuItems: MenuItem[],
+  cartItems: CartItem[],
+  hasPendingConfirmation = false,
+  confirmationArmedThisTurn = false,
+): LocalVoiceIntent {
   const normalized = normalizeVoiceText(transcript);
 
   const wantsConfirm =
@@ -351,10 +368,6 @@ function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartIt
     );
 
   const wantsPendingConfirmation = hasPendingConfirmation && isExplicitFinalConfirmation(transcript);
-
-  if (wantsConfirm || wantsPendingConfirmation) {
-    return { type: 'confirm' };
-  }
 
   const wantsRemove = /\b(quita|quitar|quita una|elimina|borra|cancela|sin)\b/.test(normalized);
   if (wantsRemove) {
@@ -393,6 +406,10 @@ function parseLocalVoiceIntent(transcript: string, menuItems: MenuItem[], cartIt
     if (item) {
       return { type: 'add', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
     }
+  }
+
+  if (!confirmationArmedThisTurn && (wantsConfirm || wantsPendingConfirmation)) {
+    return { type: 'confirm' };
   }
 
   return { type: 'unknown' };
@@ -457,6 +474,8 @@ export function useLiveSession({
   const currentTurnHadAssistantOutputRef = useRef(false);
   const pendingOrderConfirmationRef = useRef(false);
   const pendingOrderConfirmationSignatureRef = useRef('');
+  const confirmationPendingActivatedThisTurnRef = useRef(false);
+  const pendingConfirmationPromptRef = useRef('');
   const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
   const lastAssistantOutputSignatureRef = useRef('');
 
@@ -548,7 +567,74 @@ export function useLiveSession({
   const resetPendingOrderConfirmation = useCallback(() => {
     pendingOrderConfirmationRef.current = false;
     pendingOrderConfirmationSignatureRef.current = '';
+    confirmationPendingActivatedThisTurnRef.current = false;
+    pendingConfirmationPromptRef.current = '';
   }, []);
+
+  const applyCartAdd = useCallback(
+    (item: MenuItem, quantity: number, notes?: string) => {
+      const nextItems = onAddToCart(item, quantity, notes);
+      cartItemsRef.current = nextItems;
+      return nextItems;
+    },
+    [onAddToCart],
+  );
+
+  const applyCartRemoval = useCallback(
+    (item: MenuItem, quantity: number, notes?: string) => {
+      const result = onRemoveFromOrder(item.id, quantity, item.name, notes);
+      cartItemsRef.current = result.items;
+      return result;
+    },
+    [onRemoveFromOrder],
+  );
+
+  const attemptConfirmCurrentOrder = useCallback(async () => {
+    if (cartItemsRef.current.length === 0) {
+      resetPendingOrderConfirmation();
+      addLog('error', 'No puedes confirmar un pedido vacio.');
+      return {
+        success: false,
+        confirmationPending: false,
+        error: 'No puedes confirmar un pedido vacio.',
+      } satisfies ToolResult & { confirmationPending?: boolean };
+    }
+
+    const currentCartSignature = buildCartSignature(cartItemsRef.current);
+    if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
+      const confirmationPrompt = buildOrderConfirmationPrompt(cartItemsRef.current);
+      pendingOrderConfirmationRef.current = true;
+      pendingOrderConfirmationSignatureRef.current = currentCartSignature;
+      confirmationPendingActivatedThisTurnRef.current = true;
+      pendingConfirmationPromptRef.current = confirmationPrompt;
+      addLog('system', 'Confirmacion bloqueada: falta confirmacion final del cliente.');
+      return {
+        success: false,
+        confirmationPending: true,
+        error: `${confirmationPrompt} No lo envies todavia: primero pide confirmacion explicita al cliente.`,
+      } satisfies ToolResult & { confirmationPending?: boolean };
+    }
+
+    const lineCount = cartItemsRef.current.length;
+    const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
+    resetPendingOrderConfirmation();
+    currentTurnConfirmedOrderRef.current = success;
+    if (success) {
+      cartItemsRef.current = [];
+    }
+    addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmacion por voz ha fallado.');
+    return success
+      ? ({
+          success: true,
+          confirmationPending: false,
+          message: `Pedido confirmado y enviado con ${lineCount} lineas.`,
+        } satisfies ToolResult & { confirmationPending?: boolean })
+      : ({
+          success: false,
+          confirmationPending: false,
+          error: 'No se pudo confirmar el pedido.',
+        } satisfies ToolResult & { confirmationPending?: boolean });
+  }, [addLog, onConfirmOrder, resetPendingOrderConfirmation]);
 
   const stopPlayback = useCallback(() => {
     sourcesRef.current.forEach((source) => source.stop());
@@ -572,6 +658,8 @@ export function useLiveSession({
     currentTurnRemovedFromOrderRef.current = false;
     currentTurnConfirmedOrderRef.current = false;
     currentTurnHadAssistantOutputRef.current = false;
+    confirmationPendingActivatedThisTurnRef.current = false;
+    pendingConfirmationPromptRef.current = '';
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
   }, []);
@@ -778,6 +866,7 @@ export function useLiveSession({
           menuItemId: { type: Type.STRING, description: 'ID exacto del plato en el pedido actual. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato a corregir' },
           quantity: { type: Type.NUMBER, description: 'Numero de unidades a quitar. Si no se indica, quita 1.' },
+          notes: { type: Type.STRING, description: 'Observaciones exactas de la linea si hay varias del mismo plato.' },
         },
         required: [],
       },
@@ -834,6 +923,10 @@ export function useLiveSession({
         const count = Number(args.count ?? 1);
         const nextName = typeof args.name === 'string' ? args.name : undefined;
         onSetDiners(count, nextName);
+        dinersCountRef.current = Math.max(1, count);
+        if (nextName?.trim()) {
+          clientNameRef.current = nextName.trim();
+        }
         resetPendingOrderConfirmation();
         addLog('system', `Mesa actualizada a ${count} comensales.`);
         result = { success: true, message: `${count} comensales actualizados.` };
@@ -860,28 +953,20 @@ export function useLiveSession({
           };
           addLog('error', result.error);
         } else {
-          onAddToCart(item, quantity, notes);
+          const nextCartItems = applyCartAdd(item, quantity, notes);
           resetPendingOrderConfirmation();
           currentTurnAddedToOrderRef.current = true;
           pendingAddFallbackRef.current = null;
           addLog('system', `Anadido ${quantity}x ${item.name}.`);
           result = {
             success: true,
-            message: `${quantity}x ${item.name} anadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems([
-              ...cartItemsRef.current,
-              {
-                id: 'preview',
-                menuItem: item,
-                quantity,
-                notes,
-                timestamp: new Date().toISOString(),
-              },
-            ])}`,
+            message: `${quantity}x ${item.name} anadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems(nextCartItems)}`,
           };
         }
       } else if (name === 'removeFromOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
+        const notes = typeof args.notes === 'string' ? args.notes : undefined;
         const match = findMenuItemMatch(
           cartItemsRef.current.map((cartItem) => cartItem.menuItem),
           args,
@@ -898,57 +983,36 @@ export function useLiveSession({
           };
           addLog('error', result.error);
         } else {
-          onRemoveFromOrder(item.name, quantity);
+          const removal = applyCartRemoval(item, quantity, notes);
+          if (removal.requiresClarification && removal.matchingLines?.length) {
+            result = {
+              success: false,
+              error: buildRemoveClarificationMessage(item.name, removal.matchingLines),
+            };
+            addLog('error', result.error);
+            return result;
+          }
+
+          if (removal.removedQuantity <= 0) {
+            result = {
+              success: false,
+              error: `No he podido quitar ${item.name} porque ya no estaba en el pedido actual.`,
+            };
+            addLog('error', result.error);
+            return result;
+          }
+
           resetPendingOrderConfirmation();
           currentTurnRemovedFromOrderRef.current = true;
-          addLog('system', `Corregido el pedido de ${item.name}: quitadas ${quantity} unidades.`);
-          const remainingCart = [...cartItemsRef.current];
-          const targetIndex = remainingCart.findIndex((cartItem) => cartItem.menuItem.id === item.id);
-          if (targetIndex >= 0) {
-            const target = remainingCart[targetIndex];
-            const nextQuantity = target.quantity - quantity;
-            if (nextQuantity <= 0) {
-              remainingCart.splice(targetIndex, 1);
-            } else {
-              remainingCart[targetIndex] = { ...target, quantity: nextQuantity };
-            }
-          }
+          addLog('system', `Corregido el pedido de ${item.name}: quitadas ${removal.removedQuantity} unidades.`);
 
           result = {
             success: true,
-            message: `Se han quitado ${quantity} unidades de ${item.name} del pedido actual. Pedido actual: ${summarizeCartItems(remainingCart)}`,
+            message: `Se han quitado ${removal.removedQuantity} unidades de ${item.name} del pedido actual. Pedido actual: ${summarizeCartItems(removal.items)}`,
           };
         }
       } else if (name === 'confirmOrder') {
-        if (cartItemsRef.current.length === 0) {
-          resetPendingOrderConfirmation();
-          result = { success: false, error: 'No puedes confirmar un pedido vacio.' };
-          addLog('error', result.error);
-          return result;
-        }
-
-        const currentCartSignature = buildCartSignature(cartItemsRef.current);
-        if (!pendingOrderConfirmationRef.current || pendingOrderConfirmationSignatureRef.current !== currentCartSignature) {
-          pendingOrderConfirmationRef.current = true;
-          pendingOrderConfirmationSignatureRef.current = currentCartSignature;
-          result = {
-            success: false,
-            error: `${buildOrderConfirmationPrompt(cartItemsRef.current)} No lo envies todavia: primero pide confirmacion explicita al cliente.`,
-          };
-          addLog('system', 'Confirmacion bloqueada: falta confirmacion final del cliente.');
-          return result;
-        }
-
-        const success = await onConfirmOrder(dinersCountRef.current, clientNameRef.current, cartItemsRef.current);
-        resetPendingOrderConfirmation();
-        currentTurnConfirmedOrderRef.current = success;
-        result = success
-          ? {
-              success: true,
-              message: `Pedido confirmado y enviado con ${cartItemsRef.current.length} lineas.`,
-            }
-          : { success: false, error: 'No se pudo confirmar el pedido.' };
-        addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmacion por voz ha fallado.');
+        result = await attemptConfirmCurrentOrder();
       } else if (name === 'endSession') {
         result = { success: true, message: 'Sesion cerrada.' };
         pendingEndSessionRef.current = true;
@@ -956,7 +1020,7 @@ export function useLiveSession({
 
       return result;
     },
-    [addLog, disconnect, onAddToCart, onConfirmOrder, onRemoveFromOrder, onSetDiners, resetPendingOrderConfirmation],
+    [addLog, applyCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, disconnect, onSetDiners, resetPendingOrderConfirmation],
   );
 
   const ensureAudioPipeline = useCallback(async () => {
@@ -1130,7 +1194,7 @@ export function useLiveSession({
     currentTurnLocallyHandledRef.current = true;
     currentTurnAddedToOrderRef.current = true;
     pendingAddFallbackRef.current = null;
-    onAddToCart(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
+    applyCartAdd(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
     addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
     if (!currentTurnHadAudioOutputRef.current) {
@@ -1138,7 +1202,7 @@ export function useLiveSession({
     }
     finalizeTurnIfReady();
     return true;
-  }, [addLog, finalizeTurnIfReady, onAddToCart, resetPendingOrderConfirmation, speakFallbackMessage]);
+  }, [addLog, applyCartAdd, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
 
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
@@ -1146,7 +1210,13 @@ export function useLiveSession({
       return false;
     }
 
-    const intent = parseLocalVoiceIntent(transcript, menuRef.current, cartItemsRef.current, pendingOrderConfirmationRef.current);
+    const intent = parseLocalVoiceIntent(
+      transcript,
+      menuRef.current,
+      cartItemsRef.current,
+      pendingOrderConfirmationRef.current,
+      confirmationPendingActivatedThisTurnRef.current,
+    );
     if (intent.type === 'unknown') {
       return false;
     }
@@ -1157,7 +1227,7 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      onAddToCart(intent.item, intent.quantity);
+      applyCartAdd(intent.item, intent.quantity);
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
@@ -1175,7 +1245,7 @@ export function useLiveSession({
 
       currentTurnLocallyHandledRef.current = true;
       intent.items.forEach((entry) => {
-        onAddToCart(entry.item, entry.quantity);
+        applyCartAdd(entry.item, entry.quantity);
       });
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
@@ -1196,12 +1266,25 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      onRemoveFromOrder(intent.item.name, intent.quantity);
+      const removal = applyCartRemoval(intent.item, intent.quantity);
+      if (removal.requiresClarification && removal.matchingLines?.length) {
+        const clarificationMessage = buildRemoveClarificationMessage(intent.item.name, removal.matchingLines);
+        addLog('error', clarificationMessage);
+        if (!currentTurnHadAudioOutputRef.current) {
+          speakFallbackMessage(clarificationMessage);
+        }
+        finalizeTurnIfReady();
+        return true;
+      }
+      if (removal.removedQuantity <= 0) {
+        currentTurnLocallyHandledRef.current = false;
+        return false;
+      }
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
-      addLog('system', `Fallback local silencioso: quitadas ${intent.quantity} unidades de ${intent.item.name}.`);
+      addLog('system', `Fallback local silencioso: quitadas ${removal.removedQuantity} unidades de ${intent.item.name}.`);
       if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(`He quitado ${intent.quantity} ${intent.item.name} del pedido.`);
+        speakFallbackMessage(`He quitado ${removal.removedQuantity} ${intent.item.name} del pedido.`);
       }
       finalizeTurnIfReady();
       return true;
@@ -1213,9 +1296,30 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
+      let removedSomething = false;
+      let clarificationMessage: string | null = null;
       intent.items.forEach((entry) => {
-        onRemoveFromOrder(entry.item.name, entry.quantity);
+        const removal = applyCartRemoval(entry.item, entry.quantity);
+        if (removal.requiresClarification && removal.matchingLines?.length && !clarificationMessage) {
+          clarificationMessage = buildRemoveClarificationMessage(entry.item.name, removal.matchingLines);
+          return;
+        }
+        if (removal.removedQuantity > 0) {
+          removedSomething = true;
+        }
       });
+      if (clarificationMessage) {
+        addLog('error', clarificationMessage);
+        if (!currentTurnHadAudioOutputRef.current) {
+          speakFallbackMessage(clarificationMessage);
+        }
+        finalizeTurnIfReady();
+        return true;
+      }
+      if (!removedSomething) {
+        currentTurnLocallyHandledRef.current = false;
+        return false;
+      }
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog(
@@ -1235,9 +1339,30 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
+      let removedAnyItem = false;
+      let removeAllClarificationMessage: string | null = null;
       intent.items.forEach((entry) => {
-        onRemoveFromOrder(entry.item.name, entry.quantity);
+        const removal = applyCartRemoval(entry.item, entry.quantity);
+        if (removal.requiresClarification && removal.matchingLines?.length && !removeAllClarificationMessage) {
+          removeAllClarificationMessage = buildRemoveClarificationMessage(entry.item.name, removal.matchingLines);
+          return;
+        }
+        if (removal.removedQuantity > 0) {
+          removedAnyItem = true;
+        }
       });
+      if (removeAllClarificationMessage) {
+        addLog('error', removeAllClarificationMessage);
+        if (!currentTurnHadAudioOutputRef.current) {
+          speakFallbackMessage(removeAllClarificationMessage);
+        }
+        finalizeTurnIfReady();
+        return true;
+      }
+      if (!removedAnyItem) {
+        currentTurnLocallyHandledRef.current = false;
+        return false;
+      }
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog(
@@ -1252,8 +1377,30 @@ export function useLiveSession({
       return true;
     }
 
+    if (intent.type === 'confirm') {
+      if (currentTurnConfirmedOrderRef.current) {
+        return false;
+      }
+
+      currentTurnLocallyHandledRef.current = true;
+      const confirmation = await attemptConfirmCurrentOrder();
+      if (!confirmation.success && !confirmation.confirmationPending) {
+        currentTurnLocallyHandledRef.current = false;
+        return false;
+      }
+      if (!currentTurnHadAudioOutputRef.current) {
+        speakFallbackMessage(
+          confirmation.success
+            ? 'Pedido confirmado y enviado a cocina.'
+            : buildOrderConfirmationPrompt(cartItemsRef.current),
+        );
+      }
+      finalizeTurnIfReady();
+      return true;
+    }
+
     return false;
-  }, [addLog, finalizeTurnIfReady, onAddToCart, onRemoveFromOrder, resetPendingOrderConfirmation, speakFallbackMessage]);
+  }, [addLog, applyCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -1473,7 +1620,19 @@ export function useLiveSession({
 
             if (message.serverContent?.turnComplete) {
               modelTurnCompleteRef.current = true;
-              const handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              let handledLocally = tryHandlePendingAddFallback() || (await tryHandleLocalIntent());
+              if (
+                !handledLocally &&
+                confirmationPendingActivatedThisTurnRef.current &&
+                !currentTurnHadAssistantOutputRef.current &&
+                pendingConfirmationPromptRef.current
+              ) {
+                handledLocally = true;
+                const spokeFallback = speakFallbackMessage(pendingConfirmationPromptRef.current);
+                if (!spokeFallback) {
+                  finalizeTurnIfReady();
+                }
+              }
               const assistantClaimsMutation = assistantTextClaimsMutation(lastAssistantTextRef.current);
               const hadVerifiedMutation =
                 currentTurnAddedToOrderRef.current || currentTurnRemovedFromOrderRef.current || currentTurnConfirmedOrderRef.current;

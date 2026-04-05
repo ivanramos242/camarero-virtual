@@ -46,6 +46,14 @@ import {
   createVoiceSessionToken,
   fetchPublicConfig,
 } from './utils/api';
+import {
+  addCartItem,
+  buildCartSignature,
+  removeCartLine,
+  removeCartUnits,
+  updateCartLineQuantity,
+} from './utils/cartState';
+import { useRef } from 'react';
 
 const LazyKitchenPage = lazy(async () => {
   const module = await import('./routes/KitchenRoutes');
@@ -110,6 +118,14 @@ function createCartId() {
   }
 
   return `cart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createOrderRequestId() {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `order-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function getSessionDetailsStorageKey(tableNumber: string) {
@@ -509,6 +525,10 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const cartItemsRef = useRef<CartItem[]>([]);
+  const orderSubmissionLockRef = useRef(false);
+  const pendingOrderRequestIdRef = useRef<string | null>(null);
+  const pendingOrderRequestSignatureRef = useRef('');
 
   const debugEnabled = branding.showDebugTools || import.meta.env.DEV || searchParams.get('debug') === '1';
   const menuReady = !menuLoading && !menuError && menu.length > 0;
@@ -537,6 +557,15 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       window.clearTimeout(timeoutId);
     };
   }, [submitSuccess]);
+
+  useEffect(() => {
+    cartItemsRef.current = cartItems;
+    const currentSignature = buildCartSignature(cartItems);
+    if (pendingOrderRequestSignatureRef.current && pendingOrderRequestSignatureRef.current !== currentSignature) {
+      pendingOrderRequestSignatureRef.current = '';
+      pendingOrderRequestIdRef.current = null;
+    }
+  }, [cartItems]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !tableNumber) {
@@ -600,71 +629,38 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   }, [branding.showWifiPopup, branding.wifiSsid, tableNumber]);
 
   const handleAddToCart = useCallback((item: MenuItem, quantity: number, notes?: string) => {
-    setCartItems((previousItems) => {
-      const normalisedNotes = (notes || '').trim().toLowerCase();
-      const existingIndex = previousItems.findIndex(
-        (cartItem) =>
-          cartItem.menuItem.id === item.id && (cartItem.notes || '').trim().toLowerCase() === normalisedNotes,
-      );
-
-      if (existingIndex >= 0) {
-        const nextItems = [...previousItems];
-        nextItems[existingIndex] = {
-          ...nextItems[existingIndex],
-          quantity: nextItems[existingIndex].quantity + quantity,
-        };
-        return nextItems;
-      }
-
-      return [
-        ...previousItems,
-        {
-          id: createCartId(),
-          menuItem: item,
-          quantity,
-          notes,
-          timestamp: new Date().toISOString(),
-        },
-      ];
+    const result = addCartItem(cartItemsRef.current, item, quantity, {
+      notes,
+      createId: createCartId,
+      timestamp: new Date().toISOString(),
     });
+    cartItemsRef.current = result.items;
+    setCartItems(result.items);
+    return result.items;
   }, []);
 
   const handleRemoveItem = useCallback((itemId: string) => {
-    setCartItems((previousItems) => previousItems.filter((item) => item.id !== itemId));
+    const nextItems = removeCartLine(cartItemsRef.current, itemId);
+    cartItemsRef.current = nextItems;
+    setCartItems(nextItems);
   }, []);
 
   const handleUpdateQuantity = useCallback((itemId: string, quantity: number) => {
-    setCartItems((previousItems) =>
-      previousItems
-        .map((item) => (item.id === itemId ? { ...item, quantity } : item))
-        .filter((item) => item.quantity > 0),
-    );
+    const nextItems = updateCartLineQuantity(cartItemsRef.current, itemId, quantity);
+    cartItemsRef.current = nextItems;
+    setCartItems(nextItems);
   }, []);
 
-  const handleRemoveFromOrder = useCallback((itemName: string, quantity = 1) => {
-    const targetName = itemName.trim().toLowerCase();
-    const targetQuantity = Math.max(1, Math.min(12, quantity));
-
-    setCartItems((previousItems) => {
-      const targetIndex = previousItems.findIndex((item) => item.menuItem.name.toLowerCase().includes(targetName));
-
-      if (targetIndex === -1) {
-        return previousItems;
-      }
-
-      return previousItems.flatMap((item, index) => {
-        if (index !== targetIndex) {
-          return item;
-        }
-
-        const nextQuantity = item.quantity - targetQuantity;
-        if (nextQuantity <= 0) {
-          return [];
-        }
-
-        return [{ ...item, quantity: nextQuantity }];
-      });
+  const handleRemoveFromOrder = useCallback((menuItemId: string, quantity = 1, itemName?: string, notes?: string) => {
+    const result = removeCartUnits(cartItemsRef.current, {
+      menuItemId,
+      itemName,
+      quantity,
+      notes,
     });
+    cartItemsRef.current = result.items;
+    setCartItems(result.items);
+    return result;
   }, []);
 
   const handleSetDiners = useCallback((count: number, name?: string) => {
@@ -755,7 +751,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
   const handleConfirmOrder = useCallback(
     async (nextDiners: number, nextClientName: string, itemsOverride?: CartItem[]) => {
-      const itemsToSubmit = itemsOverride ?? cartItems;
+      const itemsToSubmit = itemsOverride ?? cartItemsRef.current;
 
       if (itemsToSubmit.length === 0) {
         setSubmitError('No hay platos en el pedido actual.');
@@ -767,12 +763,28 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         return false;
       }
 
+      if (orderSubmissionLockRef.current) {
+        setSubmitError('Ya se esta enviando este pedido. Espera un momento.');
+        return false;
+      }
+
+      const requestSignature = buildCartSignature(itemsToSubmit);
+      const requestId =
+        pendingOrderRequestSignatureRef.current === requestSignature && pendingOrderRequestIdRef.current
+          ? pendingOrderRequestIdRef.current
+          : createOrderRequestId();
+
+      pendingOrderRequestSignatureRef.current = requestSignature;
+      pendingOrderRequestIdRef.current = requestId;
+
       try {
+        orderSubmissionLockRef.current = true;
         setIsSending(true);
         setSubmitError(null);
         setSubmitSuccess(null);
 
         const createdOrder = await createOrderOnApi({
+          requestId,
           tableNumber,
           clientName: nextClientName.trim() || 'Cliente',
           diners: Math.max(1, nextDiners),
@@ -787,17 +799,21 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         });
 
         setOrders((previousOrders) => upsertOrder(previousOrders, createdOrder));
+        cartItemsRef.current = [];
         setCartItems([]);
+        pendingOrderRequestIdRef.current = null;
+        pendingOrderRequestSignatureRef.current = '';
         setSubmitSuccess(`Pedido ${createdOrder.id.slice(0, 8)} enviado a cocina.`);
         return true;
       } catch (requestError) {
         setSubmitError(requestError instanceof Error ? requestError.message : 'No se pudo enviar el pedido.');
         return false;
       } finally {
+        orderSubmissionLockRef.current = false;
         setIsSending(false);
       }
     },
-    [cartItems, customerEmail, reviewConsent, setOrders, tableNumber],
+    [customerEmail, reviewConsent, setOrders, tableNumber],
   );
 
   const voiceSession = useLiveSession({
@@ -1659,4 +1675,3 @@ function ProtectedAdminRoute({
 }
 
 export default App;
-

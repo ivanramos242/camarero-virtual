@@ -92,12 +92,25 @@ const matchLegacyMenuItem = (menu: MenuItem[], requestedName: string) => {
 };
 
 async function persistOrderSnapshot(order: PersistedOrder) {
-  const nextStore = await appStore.update((currentStore) => ({
-    ...currentStore,
-    orders: sortOrders([order, ...currentStore.orders]),
-  }));
+  let storedOrder = order;
+
+  const nextStore = await appStore.update((currentStore) => {
+    if (order.requestId) {
+      const existingOrder = currentStore.orders.find((currentOrder) => currentOrder.requestId === order.requestId);
+      if (existingOrder) {
+        storedOrder = existingOrder;
+        return currentStore;
+      }
+    }
+
+    return {
+      ...currentStore,
+      orders: sortOrders([order, ...currentStore.orders]),
+    };
+  });
 
   appStore.notifyOrdersChanged(nextStore.orders);
+  return storedOrder;
 }
 
 async function replaceStoredOrder(orderId: string, mapper: (currentOrder: PersistedOrder) => PersistedOrder) {
@@ -271,6 +284,15 @@ export async function listOrders(tableNumber?: string) {
 }
 
 export async function createOrder(input: CreateOrderRequest) {
+  const trimmedRequestId = input.requestId?.trim() || undefined;
+  if (trimmedRequestId) {
+    const currentStore = await appStore.read();
+    const existingOrder = currentStore.orders.find((order) => order.requestId === trimmedRequestId);
+    if (existingOrder) {
+      return existingOrder;
+    }
+  }
+
   const menu = await getAdminMenu();
   const menuById = new Map(menu.map((item) => [item.id, item]));
 
@@ -296,6 +318,7 @@ export async function createOrder(input: CreateOrderRequest) {
   const trimmedCustomerEmail = input.customerEmail?.trim().toLowerCase() || '';
   const order: PersistedOrder = {
     id: crypto.randomUUID(),
+    requestId: trimmedRequestId,
     tableNumber: input.tableNumber.trim(),
     clientName: input.clientName?.trim() || 'Cliente',
     diners: input.diners,
@@ -310,19 +333,22 @@ export async function createOrder(input: CreateOrderRequest) {
     syncState: 'local',
   };
 
-  await persistOrderSnapshot(order);
+  const persistedOrder = await persistOrderSnapshot(order);
+  if (persistedOrder.id !== order.id) {
+    return persistedOrder;
+  }
 
   try {
-    const syncState = await mirrorOrderToWebhook(order);
-    if (syncState !== order.syncState) {
-      return await setMirrorState(order.id, syncState);
+    const syncState = await mirrorOrderToWebhook(persistedOrder);
+    if (syncState !== persistedOrder.syncState) {
+      return await setMirrorState(persistedOrder.id, syncState);
     }
   } catch (error) {
     console.error('[orders] No se pudo replicar el pedido en el webhook:', error);
-    return await setMirrorState(order.id, 'mirror_failed');
+    return await setMirrorState(persistedOrder.id, 'mirror_failed');
   }
 
-  return order;
+  return persistedOrder;
 }
 
 export async function updateOrderStatus(orderId: string, nextStatus: OrderStatus) {
