@@ -24,6 +24,15 @@ export interface RemoveCartUnitsResult {
   matchingLines?: CartItem[];
 }
 
+export interface RemoveCartUnitsBatchResult {
+  items: CartItem[];
+  removedQuantity: number;
+  matched: boolean;
+  requiresClarification?: boolean;
+  matchingLines?: CartItem[];
+  clarificationTarget?: RemoveCartUnitsTarget;
+}
+
 interface AddCartItemOptions {
   notes?: string;
   createId: () => string;
@@ -187,5 +196,41 @@ export function removeCartUnits(items: CartItem[], target: RemoveCartUnitsTarget
     items: nextItems,
     removedQuantity: quantityToRemove - remainingToRemove,
     matched: true,
+  };
+}
+
+export function removeCartUnitsBatch(items: CartItem[], targets: RemoveCartUnitsTarget[]): RemoveCartUnitsBatchResult {
+  let nextItems = items;
+  let removedQuantity = 0;
+  let matched = false;
+
+  for (const target of targets) {
+    const removal = removeCartUnits(nextItems, target);
+
+    if (removal.requiresClarification && removal.matchingLines?.length) {
+      return {
+        items,
+        removedQuantity: 0,
+        matched: true,
+        requiresClarification: true,
+        matchingLines: removal.matchingLines,
+        clarificationTarget: target,
+      };
+    }
+
+    if (removal.matched) {
+      matched = true;
+    }
+
+    if (removal.removedQuantity > 0) {
+      removedQuantity += removal.removedQuantity;
+      nextItems = removal.items;
+    }
+  }
+
+  return {
+    items: nextItems,
+    removedQuantity,
+    matched,
   };
 }

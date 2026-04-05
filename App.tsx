@@ -51,6 +51,9 @@ import {
   buildCartSignature,
   removeCartLine,
   removeCartUnits,
+  removeCartUnitsBatch,
+  type RemoveCartUnitsBatchResult,
+  type RemoveCartUnitsTarget,
   updateCartLineQuantity,
 } from './utils/cartState';
 import { useRef } from 'react';
@@ -663,6 +666,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     return result;
   }, []);
 
+  const handleRemoveManyFromOrder = useCallback((targets: RemoveCartUnitsTarget[]): RemoveCartUnitsBatchResult => {
+    const result = removeCartUnitsBatch(cartItemsRef.current, targets);
+    cartItemsRef.current = result.items;
+    setCartItems(result.items);
+    return result;
+  }, []);
+
   const handleSetDiners = useCallback((count: number, name?: string) => {
     setDinersCount(Math.max(1, count));
 
@@ -823,6 +833,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     createSessionToken: createVoiceSessionToken,
     onAddToCart: handleAddToCart,
     onRemoveFromOrder: handleRemoveFromOrder,
+    onRemoveManyFromOrder: handleRemoveManyFromOrder,
     onConfirmOrder: handleConfirmOrder,
     onSetDiners: handleSetDiners,
     cartItems,

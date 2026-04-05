@@ -4,6 +4,7 @@ import type { CartItem, MenuItem } from '../types';
 import {
   addCartItem,
   buildCartSignature,
+  removeCartUnitsBatch,
   removeCartUnits,
   summarizeCartItems,
   updateCartLineQuantity,
@@ -104,6 +105,40 @@ describe('cartState', () => {
     expect(result.requiresClarification).toBe(true);
     expect(result.removedQuantity).toBe(0);
     expect(result.matchingLines).toEqual(initialItems);
+    expect(result.items).toEqual(initialItems);
+  });
+
+  it('no aplica un borrado multiple parcial si una de las lineas necesita aclaracion', () => {
+    const initialItems = [
+      createCartLine('1', tarta, 1),
+      createCartLine('2', croquetas, 1, 'sin alioli'),
+      createCartLine('3', croquetas, 2, 'muy hechas'),
+    ];
+
+    const result = removeCartUnitsBatch(initialItems, [
+      {
+        menuItemId: tarta.id,
+        itemName: tarta.name,
+        quantity: 1,
+      },
+      {
+        menuItemId: croquetas.id,
+        itemName: croquetas.name,
+        quantity: 1,
+      },
+    ]);
+
+    expect(result.requiresClarification).toBe(true);
+    expect(result.removedQuantity).toBe(0);
+    expect(result.clarificationTarget).toEqual({
+      menuItemId: croquetas.id,
+      itemName: croquetas.name,
+      quantity: 1,
+    });
+    expect(result.matchingLines).toEqual([
+      createCartLine('2', croquetas, 1, 'sin alioli'),
+      createCartLine('3', croquetas, 2, 'muy hechas'),
+    ]);
     expect(result.items).toEqual(initialItems);
   });
 

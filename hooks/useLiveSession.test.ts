@@ -29,11 +29,12 @@ const tarta: MenuItem = {
   voiceAliases: ['tarta'],
 };
 
-function createCartLine(id: string, menuItem: MenuItem, quantity: number): CartItem {
+function createCartLine(id: string, menuItem: MenuItem, quantity: number, notes?: string): CartItem {
   return {
     id,
     menuItem,
     quantity,
+    notes,
     timestamp: '2026-04-03T00:00:00.000Z',
   };
 }
@@ -57,5 +58,18 @@ describe('parseLocalVoiceIntent', () => {
   it('si confirma cuando la confirmacion pendiente viene de un turno anterior', () => {
     const intent = parseLocalVoiceIntent('si, confirma pedido', [croquetas, tarta], [createCartLine('1', croquetas, 2)], true, false);
     expect(intent.type).toBe('confirm');
+  });
+
+  it('detecta el plato aunque exista repetido en varias lineas del pedido', () => {
+    const intent = parseLocalVoiceIntent(
+      'quita una croqueta',
+      [croquetas, tarta],
+      [
+        createCartLine('1', croquetas, 1, 'sin alioli'),
+        createCartLine('2', croquetas, 1, 'muy hechas'),
+      ],
+    );
+
+    expect(intent.type).toBe('remove');
   });
 });

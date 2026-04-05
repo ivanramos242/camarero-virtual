@@ -14,7 +14,7 @@ import type {
 } from '../types';
 import { fetchVoiceDiagnostics } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
-import { buildCartSignature, summarizeCartItems } from '../utils/cartState';
+import { buildCartSignature, summarizeCartItems, type RemoveCartUnitsBatchResult, type RemoveCartUnitsTarget } from '../utils/cartState';
 import { resolveMenuItemMatch } from '../utils/voiceMatching';
 
 interface UseLiveSessionProps {
@@ -30,6 +30,7 @@ interface UseLiveSessionProps {
     requiresClarification?: boolean;
     matchingLines?: CartItem[];
   };
+  onRemoveManyFromOrder: (targets: RemoveCartUnitsTarget[]) => RemoveCartUnitsBatchResult;
   onConfirmOrder: (diners: number, name: string, items?: CartItem[]) => Promise<boolean>;
   onSetDiners: (count: number, name?: string) => void;
   cartItems: CartItem[];
@@ -117,15 +118,40 @@ function tokenizeVoiceText(value: string) {
     .filter((token) => token.length > 1 && !VOICE_STOP_WORDS.has(token));
 }
 
+function dedupeMenuItems(items: MenuItem[]) {
+  return Array.from(new Map(items.map((item) => [item.id, item])).values());
+}
+
+function resolveBestMenuItemMatch(items: MenuItem[], rawQuery: string, menuItemId?: string) {
+  const uniqueItems = dedupeMenuItems(items);
+  const initialMatch = resolveMenuItemMatch(uniqueItems, rawQuery, menuItemId);
+
+  if (initialMatch.item) {
+    return initialMatch;
+  }
+
+  const cleanedQuery = tokenizeVoiceText(rawQuery).join(' ');
+  if (!cleanedQuery || cleanedQuery === normalizeVoiceText(rawQuery)) {
+    return initialMatch;
+  }
+
+  const cleanedMatch = resolveMenuItemMatch(uniqueItems, cleanedQuery, menuItemId);
+  if (cleanedMatch.item) {
+    return cleanedMatch;
+  }
+
+  return cleanedMatch.confidence > initialMatch.confidence ? cleanedMatch : initialMatch;
+}
+
 function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
-  const match = resolveMenuItemMatch(items, rawQuery);
+  const match = resolveBestMenuItemMatch(items, rawQuery);
   return match.requiresClarification ? null : match.item;
 }
 
 function findMenuItemMatch(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
   const menuItemId = typeof args.menuItemId === 'string' ? args.menuItemId.trim() : '';
   const rawName = typeof args[nameKey] === 'string' ? args[nameKey] : '';
-  return resolveMenuItemMatch(items, rawName, menuItemId);
+  return resolveBestMenuItemMatch(items, rawName, menuItemId);
 }
 
 function findMenuItem(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
@@ -258,7 +284,7 @@ function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[])
     .filter(Boolean);
 
   const merged = new Map<string, { item: MenuItem; quantity: number }>();
-  const orderItems = cartItems.map((cartItem) => cartItem.menuItem);
+  const orderItems = dedupeMenuItems(cartItems.map((cartItem) => cartItem.menuItem));
 
   for (const segment of segments) {
     const matchedItem = resolveMenuItemFromVoiceQuery(orderItems, segment);
@@ -285,7 +311,7 @@ function findOrderItemsByCategoryOrName(cartItems: CartItem[], rawQuery: string)
   }
 
   const tokens = tokenizeVoiceText(rawQuery);
-  const orderItems = cartItems.map((cartItem) => cartItem.menuItem);
+  const orderItems = dedupeMenuItems(cartItems.map((cartItem) => cartItem.menuItem));
   const directMatch = resolveMenuItemFromVoiceQuery(orderItems, rawQuery);
   if (directMatch) {
     return [directMatch];
@@ -384,10 +410,7 @@ export function parseLocalVoiceIntent(
       return { type: 'removeMany', items: filteredMultipleItems };
     }
 
-    const item = resolveMenuItemFromVoiceQuery(
-      cartItems.map((cartItem) => cartItem.menuItem),
-      transcript,
-    );
+    const item = resolveMenuItemFromVoiceQuery(dedupeMenuItems(cartItems.map((cartItem) => cartItem.menuItem)), transcript);
     if (item && !protectedIds.has(item.id)) {
       return { type: 'remove', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
     }
@@ -422,6 +445,7 @@ export function useLiveSession({
   createSessionToken,
   onAddToCart,
   onRemoveFromOrder,
+  onRemoveManyFromOrder,
   onConfirmOrder,
   onSetDiners,
   cartItems,
@@ -587,6 +611,22 @@ export function useLiveSession({
       return result;
     },
     [onRemoveFromOrder],
+  );
+
+  const applyCartRemovalBatch = useCallback(
+    (entries: Array<{ item: MenuItem; quantity: number; notes?: string }>) => {
+      const result = onRemoveManyFromOrder(
+        entries.map((entry) => ({
+          menuItemId: entry.item.id,
+          itemName: entry.item.name,
+          quantity: entry.quantity,
+          notes: entry.notes,
+        })),
+      );
+      cartItemsRef.current = result.items;
+      return result;
+    },
+    [onRemoveManyFromOrder],
   );
 
   const attemptConfirmCurrentOrder = useCallback(async () => {
@@ -1296,18 +1336,12 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      let removedSomething = false;
-      let clarificationMessage: string | null = null;
-      intent.items.forEach((entry) => {
-        const removal = applyCartRemoval(entry.item, entry.quantity);
-        if (removal.requiresClarification && removal.matchingLines?.length && !clarificationMessage) {
-          clarificationMessage = buildRemoveClarificationMessage(entry.item.name, removal.matchingLines);
-          return;
-        }
-        if (removal.removedQuantity > 0) {
-          removedSomething = true;
-        }
-      });
+      const removal = applyCartRemovalBatch(intent.items);
+      const clarificationItemName = removal.clarificationTarget?.itemName?.trim() || removal.matchingLines?.[0]?.menuItem.name || '';
+      const clarificationMessage =
+        removal.requiresClarification && removal.matchingLines?.length
+          ? buildRemoveClarificationMessage(clarificationItemName, removal.matchingLines)
+          : null;
       if (clarificationMessage) {
         addLog('error', clarificationMessage);
         if (!currentTurnHadAudioOutputRef.current) {
@@ -1316,7 +1350,7 @@ export function useLiveSession({
         finalizeTurnIfReady();
         return true;
       }
-      if (!removedSomething) {
+      if (removal.removedQuantity <= 0) {
         currentTurnLocallyHandledRef.current = false;
         return false;
       }
@@ -1339,18 +1373,12 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      let removedAnyItem = false;
-      let removeAllClarificationMessage: string | null = null;
-      intent.items.forEach((entry) => {
-        const removal = applyCartRemoval(entry.item, entry.quantity);
-        if (removal.requiresClarification && removal.matchingLines?.length && !removeAllClarificationMessage) {
-          removeAllClarificationMessage = buildRemoveClarificationMessage(entry.item.name, removal.matchingLines);
-          return;
-        }
-        if (removal.removedQuantity > 0) {
-          removedAnyItem = true;
-        }
-      });
+      const removal = applyCartRemovalBatch(intent.items);
+      const clarificationItemName = removal.clarificationTarget?.itemName?.trim() || removal.matchingLines?.[0]?.menuItem.name || '';
+      const removeAllClarificationMessage =
+        removal.requiresClarification && removal.matchingLines?.length
+          ? buildRemoveClarificationMessage(clarificationItemName, removal.matchingLines)
+          : null;
       if (removeAllClarificationMessage) {
         addLog('error', removeAllClarificationMessage);
         if (!currentTurnHadAudioOutputRef.current) {
@@ -1359,7 +1387,7 @@ export function useLiveSession({
         finalizeTurnIfReady();
         return true;
       }
-      if (!removedAnyItem) {
+      if (removal.removedQuantity <= 0) {
         currentTurnLocallyHandledRef.current = false;
         return false;
       }
@@ -1400,7 +1428,7 @@ export function useLiveSession({
     }
 
     return false;
-  }, [addLog, applyCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
+  }, [addLog, applyCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
