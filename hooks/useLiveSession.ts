@@ -48,7 +48,8 @@ interface ToolResult {
 
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
-const PLAYBACK_GAIN = 2.15;
+const DEFAULT_PLAYBACK_GAIN = 2.15;
+const APPLE_MOBILE_PLAYBACK_GAIN = 2.8;
 const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
@@ -215,6 +216,14 @@ function isMobileBrowser() {
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 }
 
+function isAppleMobileBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
 function isSafariBrowser() {
   if (typeof navigator === 'undefined') {
     return false;
@@ -226,6 +235,32 @@ function isSafariBrowser() {
 
 function shouldKeepCaptureWarm() {
   return isMobileBrowser() || isSafariBrowser();
+}
+
+function getPlaybackTuning() {
+  if (isAppleMobileBrowser()) {
+    return {
+      gain: APPLE_MOBILE_PLAYBACK_GAIN,
+      compressor: {
+        threshold: -24,
+        knee: 18,
+        ratio: 10,
+        attack: 0.003,
+        release: 0.22,
+      },
+    };
+  }
+
+  return {
+    gain: DEFAULT_PLAYBACK_GAIN,
+    compressor: {
+      threshold: -18,
+      knee: 10,
+      ratio: 3,
+      attack: 0.008,
+      release: 0.08,
+    },
+  };
 }
 
 type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
@@ -1088,15 +1123,16 @@ export function useLiveSession({
     if (!audioContextRef.current || audioContextRef.current.state === 'closed' || !playbackGainRef.current) {
       const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
       audioContextRef.current = playbackContext;
+      const playbackTuning = getPlaybackTuning();
 
       const playbackGain = playbackContext.createGain();
-      playbackGain.gain.value = PLAYBACK_GAIN;
+      playbackGain.gain.value = playbackTuning.gain;
       const playbackCompressor = playbackContext.createDynamicsCompressor();
-      playbackCompressor.threshold.value = -18;
-      playbackCompressor.knee.value = 10;
-      playbackCompressor.ratio.value = 3;
-      playbackCompressor.attack.value = 0.008;
-      playbackCompressor.release.value = 0.08;
+      playbackCompressor.threshold.value = playbackTuning.compressor.threshold;
+      playbackCompressor.knee.value = playbackTuning.compressor.knee;
+      playbackCompressor.ratio.value = playbackTuning.compressor.ratio;
+      playbackCompressor.attack.value = playbackTuning.compressor.attack;
+      playbackCompressor.release.value = playbackTuning.compressor.release;
       playbackGain.connect(playbackCompressor);
       playbackCompressor.connect(playbackContext.destination);
       playbackGainRef.current = playbackGain;
