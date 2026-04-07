@@ -53,7 +53,7 @@ const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
 const MAX_AUTO_RECONNECT_ATTEMPTS = 2;
-const TURN_RECOVERY_TIMEOUT_MS = 15_000;
+const TURN_RECOVERY_TIMEOUT_MS = 6_000;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -1191,6 +1191,21 @@ export function useLiveSession({
     [addLog, cancelLocalSpeech, clearTurnRecoveryTimeout, scheduleAudioCaptureTeardown, setTurnStateSafe, stopPlayback],
   );
 
+  useEffect(() => {
+    if (turnState !== 'processing' && turnState !== 'speaking') {
+      clearTurnRecoveryTimeout();
+      return;
+    }
+
+    scheduleTurnRecovery(
+      turnState === 'speaking'
+        ? localSpeechUtteranceRef.current
+          ? 'voz local'
+          : 'audio remoto'
+        : 'espera de respuesta',
+    );
+  }, [clearTurnRecoveryTimeout, scheduleTurnRecovery, turnState]);
+
   const speakWithLocalVoice = useCallback(
     (text: string) => {
       const message = text.trim();
@@ -1519,10 +1534,11 @@ export function useLiveSession({
           }, SAFARI_CAPTURE_RELEASE_MS);
         }
         setTurnStateSafe('processing');
+        scheduleTurnRecovery('espera de respuesta');
         addLog('system', 'Audio enviado por limite de tiempo.');
       }
     }, MAX_RECORDING_MS);
-  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
+  }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, scheduleTurnRecovery, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
 
   const ensureGeminiSession = useCallback(async () => {
     if (statusRef.current === 'connected' && geminiSessionRef.current) {

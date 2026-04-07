@@ -30,6 +30,7 @@ import type {
 
 async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
+  const method = (init?.method ?? 'GET').toUpperCase();
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
@@ -37,6 +38,7 @@ async function request<T>(input: RequestInfo | URL, init?: RequestInit): Promise
   const response = await fetch(input, {
     ...init,
     headers,
+    cache: init?.cache ?? (method === 'GET' || method === 'HEAD' ? 'no-store' : undefined),
   });
 
   if (!response.ok) {

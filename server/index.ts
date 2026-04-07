@@ -675,6 +675,7 @@ app.use(cookieParser());
 app.use('/uploads', express.static(serverConfig.uploadsDirPath));
 
 app.get('/api/config', async (_request, response) => {
+  response.setHeader('Cache-Control', 'no-store');
   response.json(await buildPublicConfig());
 });
 
@@ -1267,6 +1268,7 @@ if (serverConfig.isProduction) {
       return;
     }
 
+    response.setHeader('Cache-Control', 'no-store');
     response.sendFile(path.join(serverConfig.frontendDistPath, 'index.html'));
   });
 }

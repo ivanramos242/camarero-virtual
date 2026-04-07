@@ -203,6 +203,7 @@ function App() {
               menu={menu}
               menuError={menuError}
               menuLoading={menuLoading}
+              refreshConfig={loadConfig}
               refreshMenu={refreshMenu}
             />
           }
@@ -504,10 +505,11 @@ interface DiningPageProps {
   menu: MenuItem[];
   menuError: string | null;
   menuLoading: boolean;
+  refreshConfig: () => Promise<void>;
   refreshMenu: () => Promise<void>;
 }
 
-function DiningPage({ branding, configError, menu, menuError, menuLoading, refreshMenu }: DiningPageProps) {
+function DiningPage({ branding, configError, menu, menuError, menuLoading, refreshConfig, refreshMenu }: DiningPageProps) {
   const { tableNumber = '' } = useParams();
   const [searchParams] = useSearchParams();
   const [activeView, setActiveView] = useState<DiningView>('main');
@@ -532,6 +534,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const orderSubmissionLockRef = useRef(false);
   const pendingOrderRequestIdRef = useRef<string | null>(null);
   const pendingOrderRequestSignatureRef = useRef('');
+  const lastHiddenAtRef = useRef<number | null>(null);
 
   const debugEnabled = branding.showDebugTools || import.meta.env.DEV || searchParams.get('debug') === '1';
   const menuReady = !menuLoading && !menuError && menu.length > 0;
@@ -877,6 +880,13 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     }
   }, [isVoiceModalOpen, voiceSession]);
 
+  const resyncAfterResume = useCallback(() => {
+    setIsPreparingVoice(false);
+    setIsVoiceModalOpen(false);
+    voiceSession.disconnect();
+    void Promise.allSettled([refreshConfig(), refreshMenu(), refreshOrders()]);
+  }, [refreshConfig, refreshMenu, refreshOrders, voiceSession]);
+
   useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') {
       return;
@@ -890,18 +900,34 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
+        lastHiddenAtRef.current = Date.now();
         resetVoiceUi();
+        return;
+      }
+
+      const hiddenForMs = lastHiddenAtRef.current ? Date.now() - lastHiddenAtRef.current : 0;
+      lastHiddenAtRef.current = null;
+      if (hiddenForMs >= 60_000) {
+        resyncAfterResume();
+      }
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        resyncAfterResume();
       }
     };
 
     window.addEventListener('pagehide', resetVoiceUi);
+    window.addEventListener('pageshow', handlePageShow);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('pagehide', resetVoiceUi);
+      window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [voiceSession]);
+  }, [resyncAfterResume, voiceSession]);
 
   useEffect(() => {
     if (!isSessionModalOpen && !isCartOpen && !isWifiModalOpen) {
