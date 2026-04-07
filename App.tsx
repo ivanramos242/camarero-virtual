@@ -1459,10 +1459,11 @@ function AssistantPanel({
   const isListening = turnState === 'recording';
   const isProcessing = turnState === 'processing' || isConnecting;
   const isSpeaking = turnState === 'speaking';
-  const hasIssue = disabled || status === 'error' || turnState === 'error' || Boolean(latestError);
+  const hasBlockingIssue = disabled || status === 'error' || turnState === 'error';
+  const issueMessage = disabledMessage || latestError || 'La sesion de voz no esta disponible.';
   const isTurnLocked = isProcessing || isSpeaking;
-  const isInteractive = !disabled && !isTurnLocked;
-  const isPressingToTalk = isPointerPressed && isInteractive && !hasIssue && !isListening;
+  const isInteractive = !hasBlockingIssue && !isTurnLocked;
+  const isPressingToTalk = isPointerPressed && isInteractive && !isListening;
   const micEnergy = Math.max(0.12, Math.min(volumeLevel, 1));
   const visualEnergy = isListening || isPressingToTalk ? micEnergy : isSpeaking ? 0.42 : isProcessing ? 0.2 : 0.08;
   const pressLabel = isListening || isPressingToTalk
@@ -1471,11 +1472,11 @@ function AssistantPanel({
       ? 'Ramiro esta pensando. Espera un momento.'
       : isSpeaking
         ? 'Ramiro esta respondiendo. Espera a que termine.'
-        : hasIssue
-          ? disabledMessage || latestError || 'La sesion de voz no esta disponible.'
+        : hasBlockingIssue
+          ? issueMessage
           : 'Mantén pulsado para hablar con Ramiro.';
   const accessibilityLabel = `${assistantName}. ${pressLabel}`;
-  const orbLabel = hasIssue
+  const orbLabel = hasBlockingIssue
     ? 'No disponible'
     : isListening || isPressingToTalk
       ? 'Habla ahora'
@@ -1484,7 +1485,7 @@ function AssistantPanel({
         : isSpeaking
           ? 'Escucha'
           : 'Mantén para hablar';
-  const orbState = hasIssue
+  const orbState = hasBlockingIssue
     ? 'error'
     : isListening || isPressingToTalk
       ? 'listening'
@@ -1500,10 +1501,10 @@ function AssistantPanel({
   } as React.CSSProperties;
 
   useEffect(() => {
-    if (!isInteractive || hasIssue || !isListening) {
+    if (!isInteractive || !isListening) {
       setIsPointerPressed(false);
     }
-  }, [hasIssue, isInteractive, isListening]);
+  }, [isInteractive, isListening]);
 
   return (
     <div
@@ -1578,7 +1579,7 @@ function AssistantPanel({
 
           <span className="sr-only">
             {showDebug && logs.length > 0 ? `Ultimo evento: ${logs[logs.length - 1]?.text}. ` : ''}
-            {hasIssue ? `Incidencia: ${disabledMessage || latestError || 'Sesion no disponible'}. ` : ''}
+            {hasBlockingIssue ? `Incidencia: ${issueMessage}. ` : ''}
             {status === 'connected' ? 'Doble toque para cerrar la sesion de voz.' : ''}
           </span>
         </button>
