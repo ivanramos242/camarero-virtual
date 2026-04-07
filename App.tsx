@@ -159,6 +159,67 @@ function upsertOrder(orderList: PersistedOrder[], nextOrder: PersistedOrder) {
   return [nextOrder, ...orderList.filter((order) => order.id !== nextOrder.id)];
 }
 
+function playOrderSentFeedback() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    navigator.vibrate([18, 30, 72]);
+  }
+
+  const AudioContextConstructor =
+    window.AudioContext ||
+    (window as Window & {
+      webkitAudioContext?: typeof AudioContext;
+    }).webkitAudioContext;
+
+  if (!AudioContextConstructor) {
+    return;
+  }
+
+  try {
+    const audioContext = new AudioContextConstructor();
+    const masterGain = audioContext.createGain();
+    const startTime = audioContext.currentTime + 0.01;
+    const notes = [
+      { frequency: 880, startOffset: 0, duration: 0.13, gain: 0.03, type: 'sine' as OscillatorType },
+      { frequency: 1174.66, startOffset: 0.1, duration: 0.15, gain: 0.028, type: 'sine' as OscillatorType },
+      { frequency: 1567.98, startOffset: 0.22, duration: 0.24, gain: 0.024, type: 'triangle' as OscillatorType },
+    ];
+
+    masterGain.gain.value = 0.9;
+    masterGain.connect(audioContext.destination);
+
+    for (const note of notes) {
+      const oscillator = audioContext.createOscillator();
+      const noteGain = audioContext.createGain();
+      const noteStart = startTime + note.startOffset;
+
+      oscillator.type = note.type;
+      oscillator.frequency.setValueAtTime(note.frequency, noteStart);
+      oscillator.frequency.exponentialRampToValueAtTime(note.frequency * 1.015, noteStart + note.duration);
+
+      noteGain.gain.setValueAtTime(0.0001, noteStart);
+      noteGain.gain.exponentialRampToValueAtTime(note.gain, noteStart + 0.03);
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, noteStart + note.duration);
+
+      oscillator.connect(noteGain);
+      noteGain.connect(masterGain);
+      oscillator.start(noteStart);
+      oscillator.stop(noteStart + note.duration + 0.02);
+    }
+
+    void audioContext.resume().catch(() => undefined);
+
+    window.setTimeout(() => {
+      void audioContext.close().catch(() => undefined);
+    }, 1200);
+  } catch {
+    // Si el navegador bloquea audio o no soporta Web Audio, mantenemos solo la confirmacion visual.
+  }
+}
+
 interface OrderSentModalProps {
   order: PersistedOrder | null;
   kitchenName: string;
@@ -181,13 +242,13 @@ function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="order-sent-title"
-        className="modal-surface-enter w-full max-w-2xl overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-2xl shadow-stone-950/10 sm:rounded-2xl"
+        className="modal-surface-enter order-sent-modal w-full max-w-2xl overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-2xl shadow-stone-950/10 sm:rounded-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="border-b border-stone-200 bg-stone-50 px-5 py-5 sm:px-6 sm:py-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
+              <span className="order-sent-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
                 <ChefHat size={24} />
               </span>
               <div className="min-w-0">
@@ -211,7 +272,7 @@ function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
           </div>
         </div>
 
-        <div className="grid gap-px border-b border-stone-200 bg-stone-200 sm:grid-cols-4">
+        <div className="order-sent-stagger grid gap-px border-b border-stone-200 bg-stone-200 sm:grid-cols-4">
           <div className="bg-white px-5 py-4">
             <p className="text-sm text-stone-500">Pedido</p>
             <p className="mt-1 text-lg font-semibold text-stone-950">#{order.id.slice(0, 8)}</p>
@@ -230,7 +291,7 @@ function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
           </div>
         </div>
 
-        <div className="max-h-[48vh] space-y-3 overflow-y-auto bg-white px-5 py-5 sm:px-6 sm:py-6">
+        <div className="order-sent-stagger max-h-[48vh] space-y-3 overflow-y-auto bg-white px-5 py-5 sm:px-6 sm:py-6">
           {order.items.map((item) => (
             <article key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-4">
               <div className="flex items-start justify-between gap-4">
@@ -692,6 +753,14 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
+  }, [sentOrderModal]);
+
+  useEffect(() => {
+    if (!sentOrderModal) {
+      return;
+    }
+
+    playOrderSentFeedback();
   }, [sentOrderModal]);
 
   useEffect(() => {

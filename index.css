@@ -167,6 +167,85 @@ button {
   animation: modal-surface-in 220ms ease-out;
 }
 
+@keyframes order-sent-surface-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes order-sent-icon-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.78) rotate(-10deg);
+  }
+
+  58% {
+    opacity: 1;
+    transform: scale(1.06) rotate(0deg);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes order-sent-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.order-sent-modal {
+  transform-origin: center bottom;
+  animation: order-sent-surface-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.order-sent-icon {
+  animation: order-sent-icon-in 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.order-sent-stagger > * {
+  opacity: 0;
+  animation: order-sent-row-in 320ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.order-sent-stagger > :nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.order-sent-stagger > :nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.order-sent-stagger > :nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.order-sent-stagger > :nth-child(4) {
+  animation-delay: 160ms;
+}
+
+.order-sent-stagger > :nth-child(5) {
+  animation-delay: 200ms;
+}
+
+.order-sent-stagger > :nth-child(6) {
+  animation-delay: 240ms;
+}
+
 @keyframes voice-idle-breathe {
   0%,
   100% {
@@ -687,7 +766,10 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .voice-orb,
-  .voice-orb * {
+  .voice-orb *,
+  .order-sent-modal,
+  .order-sent-icon,
+  .order-sent-stagger > * {
     animation: none !important;
     transition-duration: 0ms !important;
   }
