@@ -159,6 +159,114 @@ function upsertOrder(orderList: PersistedOrder[], nextOrder: PersistedOrder) {
   return [nextOrder, ...orderList.filter((order) => order.id !== nextOrder.id)];
 }
 
+interface OrderSentModalProps {
+  order: PersistedOrder | null;
+  kitchenName: string;
+  onClose: () => void;
+}
+
+function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
+  if (!order) {
+    return null;
+  }
+
+  const totalUnits = order.items.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <div
+      className="modal-backdrop-enter fixed inset-0 z-[70] flex items-end justify-center bg-stone-950/55 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6"
+      onClick={onClose}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="order-sent-title"
+        className="modal-surface-enter w-full max-w-2xl overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-2xl shadow-stone-950/10 sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-stone-200 bg-stone-50 px-5 py-5 sm:px-6 sm:py-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
+                <ChefHat size={24} />
+              </span>
+              <div className="min-w-0">
+                <h2 id="order-sent-title" className="text-2xl font-semibold tracking-tight text-stone-950 sm:text-3xl">
+                  Pedido enviado a {kitchenName}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-stone-600 sm:text-base">
+                  La cocina ya ha recibido esta comanda. Esto es exactamente lo que acabas de enviar desde la mesa {order.tableNumber}.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 transition hover:bg-stone-100"
+              aria-label="Cerrar confirmacion del pedido"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-px border-b border-stone-200 bg-stone-200 sm:grid-cols-4">
+          <div className="bg-white px-5 py-4">
+            <p className="text-sm text-stone-500">Pedido</p>
+            <p className="mt-1 text-lg font-semibold text-stone-950">#{order.id.slice(0, 8)}</p>
+          </div>
+          <div className="bg-white px-5 py-4">
+            <p className="text-sm text-stone-500">Cliente</p>
+            <p className="mt-1 text-lg font-semibold text-stone-950">{order.clientName || 'Cliente'}</p>
+          </div>
+          <div className="bg-white px-5 py-4">
+            <p className="text-sm text-stone-500">Platos</p>
+            <p className="mt-1 text-lg font-semibold text-stone-950">{totalUnits}</p>
+          </div>
+          <div className="bg-white px-5 py-4">
+            <p className="text-sm text-stone-500">Total</p>
+            <p className="mt-1 text-lg font-semibold text-stone-950">{order.totalPrice.toFixed(2)} €</p>
+          </div>
+        </div>
+
+        <div className="max-h-[48vh] space-y-3 overflow-y-auto bg-white px-5 py-5 sm:px-6 sm:py-6">
+          {order.items.map((item) => (
+            <article key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-lg font-semibold text-stone-950">
+                    {item.quantity}x {item.name}
+                  </p>
+                  {item.notes ? (
+                    <p className="mt-2 inline-flex rounded-md bg-amber-100 px-2.5 py-1 text-sm text-amber-900">
+                      Nota: {item.notes}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-stone-500">Sin observaciones.</p>
+                  )}
+                </div>
+
+                <span className="shrink-0 text-base font-semibold text-stone-700">{item.lineTotal.toFixed(2)} €</span>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="flex justify-end border-t border-stone-200 bg-white px-5 py-4 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-stone-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-black"
+          >
+            Entendido
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function App() {
   const [branding, setBranding] = useState<AppBranding>(defaultBranding);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -530,6 +638,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   const [isSending, setIsSending] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [sentOrderModal, setSentOrderModal] = useState<PersistedOrder | null>(null);
   const cartItemsRef = useRef<CartItem[]>([]);
   const orderSubmissionLockRef = useRef(false);
   const pendingOrderRequestIdRef = useRef<string | null>(null);
@@ -563,6 +672,27 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       window.clearTimeout(timeoutId);
     };
   }, [submitSuccess]);
+
+  useEffect(() => {
+    if (!sentOrderModal || typeof window === 'undefined') {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSentOrderModal(null);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [sentOrderModal]);
 
   useEffect(() => {
     cartItemsRef.current = cartItems;
@@ -814,8 +944,10 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         setOrders((previousOrders) => upsertOrder(previousOrders, createdOrder));
         cartItemsRef.current = [];
         setCartItems([]);
+        setIsCartOpen(false);
         pendingOrderRequestIdRef.current = null;
         pendingOrderRequestSignatureRef.current = '';
+        setSentOrderModal(createdOrder);
         setSubmitSuccess(`Pedido ${createdOrder.id.slice(0, 8)} enviado a cocina.`);
         return true;
       } catch (requestError) {
@@ -1190,6 +1322,12 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           </div>
         </div>
       ) : null}
+
+      <OrderSentModal
+        order={sentOrderModal}
+        kitchenName={branding.kitchenName}
+        onClose={() => setSentOrderModal(null)}
+      />
 
     </div>
   );
