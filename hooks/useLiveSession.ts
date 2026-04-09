@@ -1311,6 +1311,15 @@ export function useLiveSession({
     [addLog, speakWithLocalVoice],
   );
 
+  const playWelcomeMessage = useCallback(() => {
+    const nextClientName = clientNameRef.current.trim() || 'Cliente';
+    const nextDinersCount = Math.max(1, dinersCountRef.current);
+    const dinersLabel = nextDinersCount === 1 ? 'comensal' : 'comensales';
+    const message = `Hola ${nextClientName}, veo que sois ${nextDinersCount} ${dinersLabel}, que os apetece pedir? Puedes pulsar el boton para hablar conmigo y pedir.`;
+
+    return speakFallbackMessage(message);
+  }, [speakFallbackMessage]);
+
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1961,6 +1970,7 @@ export function useLiveSession({
     turnState,
     requestMicrophoneAccess,
     prepareVoiceSession,
+    playWelcomeMessage,
     beginPressToTalk,
     endPressToTalk,
     cancelCurrentResponse,

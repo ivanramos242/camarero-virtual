@@ -135,6 +135,10 @@ function getSessionDetailsStorageKey(tableNumber: string) {
   return `dining-session:${tableNumber || 'unknown'}`;
 }
 
+function getVoiceWelcomeSessionKey(tableNumber: string) {
+  return `voice-welcome:${tableNumber || 'unknown'}`;
+}
+
 function getSessionDetailsStorage() {
   if (typeof window === 'undefined') {
     return null;
@@ -148,6 +152,18 @@ function getSessionDetailsStorage() {
     } catch {
       return null;
     }
+  }
+}
+
+function getVoiceWelcomeStorage() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
   }
 }
 
@@ -1101,15 +1117,22 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     setIsPreparingVoice(true);
 
     try {
+      const welcomeStorage = getVoiceWelcomeStorage();
+      const welcomeKey = getVoiceWelcomeSessionKey(tableNumber);
+      const shouldPlayWelcome = welcomeStorage?.getItem(welcomeKey) !== '1';
+
       await voiceSession.requestMicrophoneAccess();
       await voiceSession.prepareVoiceSession();
       setIsVoiceModalOpen(true);
+      if (shouldPlayWelcome && voiceSession.playWelcomeMessage()) {
+        welcomeStorage?.setItem(welcomeKey, '1');
+      }
     } catch {
       setIsVoiceModalOpen(false);
     } finally {
       setIsPreparingVoice(false);
     }
-  }, [isVoiceModalOpen, voiceSession]);
+  }, [isVoiceModalOpen, tableNumber, voiceSession]);
 
   const resyncAfterResume = useCallback(() => {
     setIsPreparingVoice(false);
