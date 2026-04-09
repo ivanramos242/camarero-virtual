@@ -232,31 +232,31 @@ function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
   }
 
   const totalUnits = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  const createdAtLabel = new Date(order.createdAt).toLocaleTimeString('es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   return (
-    <div
-      className="modal-backdrop-enter fixed inset-0 z-[70] flex items-end justify-center bg-stone-950/55 px-3 py-[max(12px,env(safe-area-inset-bottom))] sm:items-center sm:px-4 sm:py-6"
-      onClick={onClose}
-    >
+    <div className="modal-backdrop-enter fixed inset-0 z-[70] bg-stone-950/55">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="order-sent-title"
-        className="modal-surface-enter order-sent-modal w-full max-w-2xl overflow-hidden rounded-t-3xl border border-stone-200 bg-white shadow-2xl shadow-stone-950/10 sm:rounded-2xl"
-        onClick={(event) => event.stopPropagation()}
+        className="modal-surface-enter order-sent-modal flex h-[100dvh] w-full flex-col bg-[var(--bg)]"
       >
-        <div className="border-b border-stone-200 bg-stone-50 px-5 py-5 sm:px-6 sm:py-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <span className="order-sent-icon flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
-                <ChefHat size={24} />
+        <header className="border-b border-stone-200 bg-white">
+          <div className="page-container flex items-start justify-between gap-4 py-4 sm:py-5">
+            <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+              <span className="order-sent-icon flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm">
+                <ChefHat size={22} />
               </span>
               <div className="min-w-0">
-                <h2 id="order-sent-title" className="text-2xl font-semibold tracking-tight text-stone-950 sm:text-3xl">
+                <h2 id="order-sent-title" className="text-2xl font-semibold tracking-tight text-stone-950 sm:text-[2.1rem]">
                   Pedido enviado a {kitchenName}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-stone-600 sm:text-base">
-                  La cocina ya ha recibido esta comanda. Esto es exactamente lo que acabas de enviar desde la mesa {order.tableNumber}.
+                <p className="mt-1 max-w-3xl text-sm text-stone-600 sm:text-[15px]">
+                  La mesa {order.tableNumber} ya ha mandado esta comanda. Revisa el detalle y vuelve al seguimiento cuando quieras.
                 </p>
               </div>
             </div>
@@ -270,58 +270,88 @@ function OrderSentModal({ order, kitchenName, onClose }: OrderSentModalProps) {
               <X size={16} />
             </button>
           </div>
-        </div>
+        </header>
 
-        <div className="order-sent-stagger grid gap-px border-b border-stone-200 bg-stone-200 sm:grid-cols-4">
-          <div className="bg-white px-5 py-4">
-            <p className="text-sm text-stone-500">Pedido</p>
-            <p className="mt-1 text-lg font-semibold text-stone-950">#{order.id.slice(0, 8)}</p>
-          </div>
-          <div className="bg-white px-5 py-4">
-            <p className="text-sm text-stone-500">Cliente</p>
-            <p className="mt-1 text-lg font-semibold text-stone-950">{order.clientName || 'Cliente'}</p>
-          </div>
-          <div className="bg-white px-5 py-4">
-            <p className="text-sm text-stone-500">Platos</p>
-            <p className="mt-1 text-lg font-semibold text-stone-950">{totalUnits}</p>
-          </div>
-          <div className="bg-white px-5 py-4">
-            <p className="text-sm text-stone-500">Total</p>
-            <p className="mt-1 text-lg font-semibold text-stone-950">{order.totalPrice.toFixed(2)} €</p>
-          </div>
-        </div>
-
-        <div className="order-sent-stagger max-h-[48vh] space-y-3 overflow-y-auto bg-white px-5 py-5 sm:px-6 sm:py-6">
-          {order.items.map((item) => (
-            <article key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-lg font-semibold text-stone-950">
-                    {item.quantity}x {item.name}
-                  </p>
-                  {item.notes ? (
-                    <p className="mt-2 inline-flex rounded-md bg-amber-100 px-2.5 py-1 text-sm text-amber-900">
-                      Nota: {item.notes}
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-sm text-stone-500">Sin observaciones.</p>
-                  )}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="page-container grid h-full gap-4 py-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:py-5">
+            <section className="order-sent-stagger min-h-0 overflow-hidden rounded-xl border border-stone-200 bg-white">
+              <div className="grid gap-px border-b border-stone-200 bg-stone-200 sm:grid-cols-4">
+                <div className="bg-white px-4 py-3">
+                  <p className="text-xs font-medium text-stone-500">Pedido</p>
+                  <p className="mt-1 text-base font-semibold text-stone-950">#{order.id.slice(0, 8)}</p>
                 </div>
-
-                <span className="shrink-0 text-base font-semibold text-stone-700">{item.lineTotal.toFixed(2)} €</span>
+                <div className="bg-white px-4 py-3">
+                  <p className="text-xs font-medium text-stone-500">Cliente</p>
+                  <p className="mt-1 truncate text-base font-semibold text-stone-950">{order.clientName || 'Cliente'}</p>
+                </div>
+                <div className="bg-white px-4 py-3">
+                  <p className="text-xs font-medium text-stone-500">Hora</p>
+                  <p className="mt-1 text-base font-semibold text-stone-950">{createdAtLabel}</p>
+                </div>
+                <div className="bg-white px-4 py-3">
+                  <p className="text-xs font-medium text-stone-500">Comensales</p>
+                  <p className="mt-1 text-base font-semibold text-stone-950">{order.diners}</p>
+                </div>
               </div>
-            </article>
-          ))}
-        </div>
 
-        <div className="flex justify-end border-t border-stone-200 bg-white px-5 py-4 sm:px-6">
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-stone-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-black"
-          >
-            Entendido
-          </button>
+              <div className="max-h-full overflow-y-auto">
+                {order.items.map((item) => (
+                  <article key={item.id} className="border-b border-stone-200 px-4 py-3 last:border-b-0 sm:px-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[15px] font-semibold text-stone-950 sm:text-base">
+                          <span className="inline-flex min-w-8 justify-center rounded-md bg-stone-100 px-2 py-1 text-xs font-semibold text-stone-700">
+                            {item.quantity}x
+                          </span>
+                          <span className="min-w-0">{item.name}</span>
+                        </p>
+                        {item.notes ? <p className="mt-1.5 text-sm text-amber-900">Nota: {item.notes}</p> : null}
+                      </div>
+
+                      <span className="shrink-0 text-sm font-semibold text-stone-700 sm:text-[15px]">
+                        {item.lineTotal.toFixed(2)} €
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <aside className="order-sent-stagger grid content-start gap-3">
+              <section className="rounded-xl border border-stone-200 bg-white px-4 py-4">
+                <p className="text-xs font-medium text-stone-500">Resumen</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+                    <span className="text-sm text-stone-500">Platos</span>
+                    <span className="text-base font-semibold text-stone-950">{totalUnits}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-stone-200 pb-3">
+                    <span className="text-sm text-stone-500">Total</span>
+                    <span className="text-base font-semibold text-stone-950">{order.totalPrice.toFixed(2)} €</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-stone-500">Estado</span>
+                    <span className="text-sm font-semibold text-emerald-700">Recibido en cocina</span>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-stone-200 bg-white px-4 py-4">
+                <p className="text-sm font-semibold text-stone-950">Confirmacion enviada</p>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  Ya no tienes que reenviar nada. Desde aqui solo te queda volver al seguimiento del pedido.
+                </p>
+              </section>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-stone-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black"
+              >
+                Ver estado del pedido
+              </button>
+            </aside>
+          </div>
         </div>
       </section>
     </div>
