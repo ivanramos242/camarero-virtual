@@ -1363,19 +1363,24 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       <div className="h-56 lg:h-40" />
 
       <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-40 flex items-stretch gap-3 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setIsCartOpen(true)}
-          className="min-h-14 flex-1 rounded-xl bg-stone-900 px-4 py-3 text-left text-white shadow-lg shadow-stone-950/20"
-        >
-          <span className="block text-xs text-stone-300">Pedido actual</span>
-          <span className="mt-1 flex items-center justify-between gap-3">
-            <span className="min-w-0 text-sm font-medium">
+        <div className="flex min-h-14 flex-1 items-center gap-3 rounded-xl bg-stone-900 px-4 py-3 text-white shadow-lg shadow-stone-950/20">
+          <div className="min-w-0 flex-1">
+            <span className="block text-xs text-stone-300">Pedido actual</span>
+            <span className="mt-1 block min-w-0 text-sm font-medium">
               {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aun no has añadido platos'}
             </span>
-            <span className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold">{totalPrice.toFixed(2)} €</span>
-          </span>
-        </button>
+          </div>
+
+          <span className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold">{totalPrice.toFixed(2)} €</span>
+
+          <button
+            type="button"
+            onClick={() => setIsCartOpen(true)}
+            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-100"
+          >
+            Ver
+          </button>
+        </div>
 
         {branding.voiceEnabled ? (
           <button
