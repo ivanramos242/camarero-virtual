@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CartItem, MenuItem } from '../types';
-import { parseLocalVoiceIntent } from './useLiveSession';
+import { buildVoiceWelcomeMessage, parseLocalVoiceIntent } from './useLiveSession';
 
 const croquetas: MenuItem = {
   id: 'croquetas-caseras',
@@ -40,6 +40,12 @@ function createCartLine(id: string, menuItem: MenuItem, quantity: number, notes?
 }
 
 describe('parseLocalVoiceIntent', () => {
+  it('genera un saludo breve que confirma el micrófono y explica qué puede hacer Ramiro', () => {
+    expect(buildVoiceWelcomeMessage('Ramiro')).toBe(
+      'Hola, soy Ramiro. Micrófono activado. Puedo recomendarte platos, resolver dudas de la carta y tomar tu pedido. Mantén pulsado para hablar.',
+    );
+  });
+
   it('prioriza anadir frente a confirmacion cuando la frase mezcla ambas cosas', () => {
     const intent = parseLocalVoiceIntent('ponme una tarta de queso y ya estaria', [croquetas, tarta], []);
     expect(intent.type).toBe('add');

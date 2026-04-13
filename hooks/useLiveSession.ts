@@ -165,7 +165,7 @@ function buildOrderConfirmationPrompt(items: CartItem[]) {
     return 'No veo ningun plato en el pedido todavia.';
   }
 
-  return `Resumen del pedido: ${summarizeCartItems(items)}. Si esta todo correcto, di confirmar pedido para enviarlo a cocina.`;
+  return `Resumen del pedido: ${summarizeCartItems(items)}. Si está todo correcto, di confirmar pedido para enviarlo a cocina.`;
 }
 
 function buildRemoveClarificationMessage(itemName: string, matchingLines: CartItem[]) {
@@ -174,6 +174,10 @@ function buildRemoveClarificationMessage(itemName: string, matchingLines: CartIt
     .join(', ');
 
   return `Tengo varias lineas para ${itemName}: ${variants}. Dime cual quieres quitar exactamente.`;
+}
+
+export function buildVoiceWelcomeMessage(assistantName: string) {
+  return `Hola, soy ${assistantName}. Micrófono activado. Puedo recomendarte platos, resolver dudas de la carta y tomar tu pedido. Mantén pulsado para hablar.`;
 }
 
 function isExplicitFinalConfirmation(transcript: string) {
@@ -283,12 +287,12 @@ interface PendingAddFallback {
 
 function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
   const normalized = normalizeVoiceText(transcript);
-  if (!/\b(pon|ponme|ponnos|trae|traeme|traenos|anade|aÃ±ade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized)) {
+  if (!/\b(pon|ponme|ponnos|trae|traeme|traenos|anade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized)) {
     return [];
   }
 
   const segments = normalized
-    .split(/\s*(?:,| y | e | luego | despues | despuÃ©s | tambien | tambiÃ©n )\s*/i)
+    .split(/\s*(?:,| y | e | luego | despues | tambien )\s*/i)
     .map((segment) => segment.trim())
     .filter(Boolean);
 
@@ -616,20 +620,20 @@ export function useLiveSession({
 
   const requestMicrophoneAccess = useCallback(async () => {
     if (!branding.voiceEnabled) {
-      throw new Error('La voz no esta disponible en este entorno.');
+      throw new Error('La voz no está disponible en este entorno.');
     }
 
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Este dispositivo no permite acceder al microfono.');
+      throw new Error('Este dispositivo no permite acceder al micrófono.');
     }
 
     let stream: MediaStream | null = null;
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      addLog('system', 'Microfono preparado.');
+      addLog('system', 'Micrófono preparado.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo activar el microfono.';
+      const message = error instanceof Error ? error.message : 'No se pudo activar el micrófono.';
       addLog('error', message);
       throw error;
     } finally {
@@ -868,7 +872,7 @@ export function useLiveSession({
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true;
     reconnectAttemptsRef.current = 0;
-    addLog('system', 'Sesion cerrada.');
+    addLog('system', 'Sesión cerrada.');
     resetSession('disconnected');
   }, [addLog, resetSession]);
 
@@ -1312,13 +1316,10 @@ export function useLiveSession({
   );
 
   const playWelcomeMessage = useCallback(() => {
-    const nextClientName = clientNameRef.current.trim() || 'Cliente';
-    const nextDinersCount = Math.max(1, dinersCountRef.current);
-    const dinersLabel = nextDinersCount === 1 ? 'comensal' : 'comensales';
-    const message = `Hola ${nextClientName}, veo que sois ${nextDinersCount} ${dinersLabel}, que os apetece pedir? Puedes pulsar el boton para hablar conmigo y pedir.`;
+    const message = buildVoiceWelcomeMessage(branding.assistantName);
 
     return speakFallbackMessage(message);
-  }, [speakFallbackMessage]);
+  }, [branding.assistantName, speakFallbackMessage]);
 
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
@@ -1643,7 +1644,7 @@ export function useLiveSession({
           onopen: () => {
             reconnectAttemptsRef.current = 0;
             clearReconnectTimeout();
-            addLog('system', `Sesion de voz abierta con ${branding.assistantName} por Gemini.`);
+            addLog('system', `Sesión de voz abierta con ${branding.assistantName} por Gemini.`);
             setStatusSafe('connected');
             if (isSafariBrowser()) {
               setPreferredAudioSession('playback');
@@ -1764,7 +1765,7 @@ export function useLiveSession({
               stopPlayback();
               cancelLocalSpeech();
               resetAssistantTurnTracking();
-              addLog('system', 'Respuesta interrumpida para escuchar una nueva instruccion.');
+              addLog('system', 'Respuesta interrumpida para escuchar una nueva instrucción.');
               finalizeTurnIfReady();
             }
 
@@ -1812,7 +1813,7 @@ export function useLiveSession({
             }
           },
           onerror: (error) => {
-            addLog('error', error.message || 'Se ha producido un error en la sesion de Gemini.');
+            addLog('error', error.message || 'Se ha producido un error en la sesión de Gemini.');
             void runVoiceDiagnostics();
             resetSession('error');
           },
@@ -1867,7 +1868,7 @@ export function useLiveSession({
 
   const beginPressToTalk = useCallback(async () => {
     if (!branding.voiceEnabled) {
-      addLog('error', 'La voz no esta disponible en este entorno. Puedes seguir usando la carta manual.');
+      addLog('error', 'La voz no está disponible en este entorno. Puedes seguir usando la carta manual.');
       setStatusSafe('error');
       setTurnStateSafe('error');
       return;
@@ -1888,7 +1889,7 @@ export function useLiveSession({
 
       startRecordingInternal();
     } catch (connectionError) {
-      const message = connectionError instanceof Error ? connectionError.message : 'No se pudo iniciar la sesion de voz.';
+      const message = connectionError instanceof Error ? connectionError.message : 'No se pudo iniciar la sesión de voz.';
       addLog('error', message);
       void runVoiceDiagnostics();
       setStatusSafe('error');
@@ -1898,7 +1899,7 @@ export function useLiveSession({
 
   const prepareVoiceSession = useCallback(async () => {
     if (!branding.voiceEnabled) {
-      throw new Error('La voz no esta disponible en este entorno.');
+      throw new Error('La voz no está disponible en este entorno.');
     }
 
     clearCaptureTeardownTimeout();
@@ -1954,7 +1955,7 @@ export function useLiveSession({
 
       addLog('system', `Reintentando recuperar la voz (${attempt}/${MAX_AUTO_RECONNECT_ATTEMPTS})...`);
       void ensureGeminiSession().catch((error) => {
-        addLog('error', error instanceof Error ? error.message : 'No se pudo recuperar la sesion de voz.');
+        addLog('error', error instanceof Error ? error.message : 'No se pudo recuperar la sesión de voz.');
       });
     }, AUTO_RECONNECT_DELAY_MS);
 

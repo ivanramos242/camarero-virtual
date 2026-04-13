@@ -135,10 +135,6 @@ function getSessionDetailsStorageKey(tableNumber: string) {
   return `dining-session:${tableNumber || 'unknown'}`;
 }
 
-function getVoiceWelcomeSessionKey(tableNumber: string) {
-  return `voice-welcome:${tableNumber || 'unknown'}`;
-}
-
 function getSessionDetailsStorage() {
   if (typeof window === 'undefined') {
     return null;
@@ -152,18 +148,6 @@ function getSessionDetailsStorage() {
     } catch {
       return null;
     }
-  }
-}
-
-function getVoiceWelcomeStorage() {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
   }
 }
 
@@ -1103,7 +1087,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
   }, [voiceSession.logs]);
   const voiceDisabled = Boolean(menuError) || isPreparingVoice;
   const voiceDisabledMessage = isPreparingVoice
-    ? 'Preparando el microfono...'
+    ? 'Preparando el micrófono...'
     : menuError || '';
 
   const handleVoiceModalToggle = useCallback(async () => {
@@ -1117,22 +1101,16 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     setIsPreparingVoice(true);
 
     try {
-      const welcomeStorage = getVoiceWelcomeStorage();
-      const welcomeKey = getVoiceWelcomeSessionKey(tableNumber);
-      const shouldPlayWelcome = welcomeStorage?.getItem(welcomeKey) !== '1';
-
       await voiceSession.requestMicrophoneAccess();
       await voiceSession.prepareVoiceSession();
       setIsVoiceModalOpen(true);
-      if (shouldPlayWelcome && voiceSession.playWelcomeMessage()) {
-        welcomeStorage?.setItem(welcomeKey, '1');
-      }
+      voiceSession.playWelcomeMessage();
     } catch {
       setIsVoiceModalOpen(false);
     } finally {
       setIsPreparingVoice(false);
     }
-  }, [isVoiceModalOpen, tableNumber, voiceSession]);
+  }, [isVoiceModalOpen, voiceSession]);
 
   const resyncAfterResume = useCallback(() => {
     setIsPreparingVoice(false);
@@ -1367,7 +1345,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
           <div className="min-w-0 flex-1">
             <span className="block text-xs text-stone-300">Pedido actual</span>
             <span className="mt-1 block min-w-0 text-sm font-medium">
-              {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aun no has añadido platos'}
+              {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aún no has añadido platos'}
             </span>
           </div>
 
@@ -1725,7 +1703,7 @@ function AssistantPanel({
   const isProcessing = turnState === 'processing' || isConnecting;
   const isSpeaking = turnState === 'speaking';
   const hasBlockingIssue = disabled || status === 'error' || turnState === 'error';
-  const issueMessage = disabledMessage || latestError || 'La sesion de voz no esta disponible.';
+  const issueMessage = disabledMessage || latestError || 'La sesión de voz no está disponible.';
   const isTurnLocked = isProcessing || isSpeaking;
   const isInteractive = !hasBlockingIssue && !isTurnLocked;
   const isPressingToTalk = isPointerPressed && isInteractive && !isListening;
@@ -1734,9 +1712,9 @@ function AssistantPanel({
   const pressLabel = isListening || isPressingToTalk
     ? 'Habla ahora. Suelta para enviar.'
     : isProcessing
-      ? 'Ramiro esta pensando. Espera un momento.'
+      ? 'Ramiro está pensando. Espera un momento.'
       : isSpeaking
-        ? 'Ramiro esta respondiendo. Espera a que termine.'
+        ? 'Ramiro está respondiendo. Espera a que termine.'
         : hasBlockingIssue
           ? issueMessage
           : 'Mantén pulsado para hablar con Ramiro.';
@@ -1843,9 +1821,9 @@ function AssistantPanel({
           </span>
 
           <span className="sr-only">
-            {showDebug && logs.length > 0 ? `Ultimo evento: ${logs[logs.length - 1]?.text}. ` : ''}
+            {showDebug && logs.length > 0 ? `Último evento: ${logs[logs.length - 1]?.text}. ` : ''}
             {hasBlockingIssue ? `Incidencia: ${issueMessage}. ` : ''}
-            {status === 'connected' ? 'Doble toque para cerrar la sesion de voz.' : ''}
+            {status === 'connected' ? 'Doble toque para cerrar la sesión de voz.' : ''}
           </span>
         </button>
       </div>
