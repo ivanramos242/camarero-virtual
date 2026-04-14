@@ -723,18 +723,18 @@ function OrderStrip({ cartUnits, totalPrice, onOpen, variant }: OrderStripProps)
     <div
       className={
         isMobile
-          ? 'flex min-h-12 flex-1 items-center gap-2.5 rounded-xl bg-stone-900 px-3 py-2.5 text-white shadow-lg shadow-stone-950/20'
-          : 'panel flex items-center gap-2.5 px-3 py-2.5'
+          ? 'flex min-h-10 flex-1 items-center gap-2 rounded-xl bg-stone-900 px-2.5 py-2 text-white shadow-lg shadow-stone-950/20'
+          : 'panel flex items-center gap-2 px-2.5 py-2'
       }
     >
-      <span className="relative flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">
-        <ShoppingCart size={18} />
+      <span className="relative flex h-7 w-7 shrink-0 items-center justify-center" aria-hidden="true">
+        <ShoppingCart size={17} />
         {cartUnits > 0 ? (
           <span
             className={
               isMobile
-                ? 'absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold leading-4 text-stone-900'
-                : 'absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-stone-900 px-1 text-[10px] font-bold leading-4 text-white'
+                ? 'absolute -right-1 -top-1 inline-flex min-w-[15px] items-center justify-center rounded-full bg-white px-1 text-[9px] font-bold leading-[15px] text-stone-900'
+                : 'absolute -right-1 -top-1 inline-flex min-w-[15px] items-center justify-center rounded-full bg-stone-900 px-1 text-[9px] font-bold leading-[15px] text-white'
             }
           >
             {cartUnits}
@@ -742,15 +742,15 @@ function OrderStrip({ cartUnits, totalPrice, onOpen, variant }: OrderStripProps)
         ) : null}
       </span>
 
-      <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${isMobile ? 'text-white' : 'text-stone-900'}`}>
+      <span className={`min-w-0 flex-1 truncate text-[13px] font-semibold ${isMobile ? 'text-white' : 'text-stone-900'}`}>
         Pedido actual
       </span>
 
       <span
         className={
           isMobile
-            ? 'shrink-0 text-sm font-semibold text-white'
-            : 'shrink-0 text-sm font-semibold text-stone-900'
+            ? 'shrink-0 text-[13px] font-semibold text-white'
+            : 'shrink-0 text-[13px] font-semibold text-stone-900'
         }
       >
         {totalPrice.toFixed(2)} €
@@ -761,8 +761,8 @@ function OrderStrip({ cartUnits, totalPrice, onOpen, variant }: OrderStripProps)
         onClick={onOpen}
         className={
           isMobile
-            ? 'inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-stone-900 transition hover:bg-stone-100'
-            : 'inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-900 transition hover:bg-stone-50'
+            ? 'inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg bg-white px-2.5 py-1 text-[13px] font-semibold text-stone-900 transition hover:bg-stone-100'
+            : 'inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg border border-stone-300 px-2.5 py-1 text-[13px] font-semibold text-stone-900 transition hover:bg-stone-50'
         }
       >
         Ver
