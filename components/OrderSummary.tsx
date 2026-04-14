@@ -15,6 +15,7 @@ interface OrderSummaryProps {
   errorMessage?: string | null;
   successMessage?: string | null;
   className?: string;
+  stickyOnDesktop?: boolean;
 }
 
 const OrderSummary: React.FC<OrderSummaryProps> = ({
@@ -29,11 +30,12 @@ const OrderSummary: React.FC<OrderSummaryProps> = ({
   errorMessage,
   successMessage,
   className,
+  stickyOnDesktop = true,
 }) => {
   const estimatedPerDiner = dinersCount && dinersCount > 0 ? total / dinersCount : null;
 
   return (
-    <section className={`panel flex flex-col overflow-hidden lg:sticky lg:top-6 ${className ?? ''}`}>
+    <section className={`panel flex flex-col overflow-hidden ${stickyOnDesktop ? 'lg:sticky lg:top-6' : ''} ${className ?? ''}`}>
       <div className="border-b border-stone-200 px-5 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

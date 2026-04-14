@@ -18,6 +18,7 @@ import {
   QrCode,
   RefreshCcw,
   Shield,
+  ShoppingCart,
   Store,
   TerminalSquare,
   UserRound,
@@ -708,6 +709,63 @@ interface DiningPageProps {
   refreshMenu: () => Promise<void>;
 }
 
+interface OrderStripProps {
+  totalPrice: number;
+  onOpen: () => void;
+  variant: 'desktop' | 'mobile';
+}
+
+function OrderStrip({ totalPrice, onOpen, variant }: OrderStripProps) {
+  const isMobile = variant === 'mobile';
+
+  return (
+    <div
+      className={
+        isMobile
+          ? 'flex min-h-14 flex-1 items-center gap-3 rounded-xl bg-stone-900 px-4 py-3 text-white shadow-lg shadow-stone-950/20'
+          : 'panel flex items-center gap-3 px-4 py-3'
+      }
+    >
+      <span
+        className={
+          isMobile
+            ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white'
+            : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone-900 text-white'
+        }
+        aria-hidden="true"
+      >
+        <ShoppingCart size={18} />
+      </span>
+
+      <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${isMobile ? 'text-white' : 'text-stone-900'}`}>
+        Pedido actual
+      </span>
+
+      <span
+        className={
+          isMobile
+            ? 'shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white'
+            : 'shrink-0 text-sm font-semibold text-stone-900'
+        }
+      >
+        {totalPrice.toFixed(2)} €
+      </span>
+
+      <button
+        type="button"
+        onClick={onOpen}
+        className={
+          isMobile
+            ? 'inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-100'
+            : 'inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-50'
+        }
+      >
+        Ver todo
+      </button>
+    </div>
+  );
+}
+
 function DiningPage({ branding, configError, menu, menuError, menuLoading, refreshConfig, refreshMenu }: DiningPageProps) {
   const { tableNumber = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -1079,7 +1137,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     () => cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0),
     [cartItems],
   );
-  const cartUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.quantity, 0), [cartItems]);
 
   const latestVoiceError = useMemo(() => {
     const latestError = [...voiceSession.logs].reverse().find((log) => log.role === 'error');
@@ -1298,20 +1355,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </section>
 
         <aside className="hidden space-y-6 lg:block">
-          <OrderSummary
-            items={cartItems}
-            total={totalPrice}
-            dinersCount={dinersCount}
-            tableNumber={tableNumber}
-            onConfirm={() => {
-              void handleConfirmOrder(dinersCount, clientName);
-            }}
-            onRemoveItem={handleRemoveItem}
-            onUpdateQuantity={handleUpdateQuantity}
-            isSending={isSending}
-            errorMessage={submitError}
-            successMessage={submitSuccess}
-          />
+          <OrderStrip totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="desktop" />
 
           {ordersLoading ? (
             <section className="panel flex items-center gap-3 px-5 py-4 text-sm text-stone-500">
@@ -1340,24 +1384,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       <div className="h-56 lg:h-40" />
 
       <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-40 flex items-stretch gap-3 lg:hidden">
-        <div className="flex min-h-14 flex-1 items-center gap-3 rounded-xl bg-stone-900 px-4 py-3 text-white shadow-lg shadow-stone-950/20">
-          <div className="min-w-0 flex-1">
-            <span className="block text-xs text-stone-300">Pedido actual</span>
-            <span className="mt-1 block min-w-0 text-sm font-medium">
-              {cartUnits > 0 ? `${cartUnits} platos en la comanda` : 'Aún no has añadido platos'}
-            </span>
-          </div>
-
-          <span className="shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold">{totalPrice.toFixed(2)} €</span>
-
-          <button
-            type="button"
-            onClick={() => setIsCartOpen(true)}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-100"
-          >
-            Ver
-          </button>
-        </div>
+        <OrderStrip totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="mobile" />
 
         {branding.voiceEnabled ? (
           <button
@@ -1385,15 +1412,15 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       </div>
 
       {isCartOpen ? (
-        <div className="fixed inset-0 z-50 bg-stone-950/40 lg:hidden" onClick={() => setIsCartOpen(false)}>
+        <div className="fixed inset-0 z-50 bg-stone-950/40 modal-backdrop-enter" onClick={() => setIsCartOpen(false)}>
           <div
-            className="absolute inset-x-0 bottom-0 max-h-[88vh] rounded-t-3xl bg-[var(--bg)] px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3"
+            className="modal-surface-enter absolute inset-x-0 bottom-0 max-h-[88vh] rounded-t-3xl bg-[var(--bg)] px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:max-h-[min(80vh,760px)] lg:w-[min(720px,calc(100vw-32px))] lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:px-5 lg:pb-5 lg:pt-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-stone-300" />
             <div className="mb-3 flex items-center justify-between px-1">
               <div>
-                <p className="text-sm font-semibold text-stone-900">Resumen del pedido</p>
+                <p className="text-sm font-semibold text-stone-900">Pedido actual</p>
                 <p className="text-xs text-stone-500">Revisa la comanda antes de enviarla.</p>
               </div>
               <button
@@ -1422,6 +1449,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
               errorMessage={submitError}
               successMessage={submitSuccess}
               className="max-h-[calc(88vh-72px)]"
+              stickyOnDesktop={false}
             />
           </div>
         </div>
