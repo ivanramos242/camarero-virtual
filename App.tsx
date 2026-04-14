@@ -1323,17 +1323,16 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
                   disabled={voiceDisabled}
                   disabledMessage={voiceDisabledMessage}
                   lastAssistantMessage={voiceSession.lastAssistantMessage}
-                  latestError={latestVoiceError}
-                  logs={voiceSession.logs}
-                  status={voiceSession.status}
-                  turnState={voiceSession.turnState}
-                  onBeginPressToTalk={voiceSession.beginPressToTalk}
-                  onEndPressToTalk={voiceSession.endPressToTalk}
-                  onDisconnect={voiceSession.disconnect}
-                  showDebug={debugEnabled}
-                  volumeLevel={voiceSession.volumeLevel}
-                  mobileVisible={isVoiceModalOpen}
-                />
+              latestError={latestVoiceError}
+              logs={voiceSession.logs}
+              status={voiceSession.status}
+              turnState={voiceSession.turnState}
+              onBeginPressToTalk={voiceSession.beginPressToTalk}
+              onEndPressToTalk={voiceSession.endPressToTalk}
+              showDebug={debugEnabled}
+              volumeLevel={voiceSession.volumeLevel}
+              mobileVisible={isVoiceModalOpen}
+            />
               ) : null}
 
               <MenuPanel
@@ -1708,7 +1707,6 @@ interface AssistantPanelProps {
   turnState: 'idle' | 'recording' | 'processing' | 'speaking' | 'error';
   onBeginPressToTalk: () => void;
   onEndPressToTalk: () => void;
-  onDisconnect: () => void;
   showDebug: boolean;
   volumeLevel: number;
   mobileVisible?: boolean;
@@ -1725,7 +1723,6 @@ function AssistantPanel({
   turnState,
   onBeginPressToTalk,
   onEndPressToTalk,
-  onDisconnect,
   showDebug,
   volumeLevel,
   mobileVisible = false,
@@ -1775,6 +1772,7 @@ function AssistantPanel({
     '--voice-mic-scale': (1 + micEnergy * 0.22).toFixed(3),
     '--voice-speaking-scale': (1 + visualEnergy * 0.14).toFixed(3),
   } as React.CSSProperties;
+  const canStartPressToTalk = !hasBlockingIssue && turnState === 'idle';
 
   useEffect(() => {
     if (!isInteractive || !isListening) {
@@ -1798,18 +1796,19 @@ function AssistantPanel({
           data-pressed={isPointerPressed ? 'true' : 'false'}
           onSelect={(event) => event.preventDefault()}
           onSelectStart={(event) => event.preventDefault()}
-          onDoubleClick={() => {
-            if (status === 'connected') {
-              onDisconnect();
-            }
-          }}
           onPointerDown={(event) => {
+            if (!canStartPressToTalk) {
+              return;
+            }
             event.preventDefault();
             event.currentTarget.setPointerCapture(event.pointerId);
             setIsPointerPressed(true);
             void onBeginPressToTalk();
           }}
           onPointerUp={(event) => {
+            if (!isPointerPressed) {
+              return;
+            }
             event.preventDefault();
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1818,6 +1817,9 @@ function AssistantPanel({
             onEndPressToTalk();
           }}
           onPointerCancel={(event) => {
+            if (!isPointerPressed) {
+              return;
+            }
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
@@ -1825,7 +1827,9 @@ function AssistantPanel({
             onEndPressToTalk();
           }}
           onContextMenu={(event) => event.preventDefault()}
-          className="voice-orb group relative inline-flex touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none disabled:cursor-not-allowed"
+          className={`voice-orb group relative inline-flex touch-none items-center justify-center rounded-full border-0 bg-transparent p-0 outline-none disabled:cursor-not-allowed ${
+            canStartPressToTalk || isPointerPressed ? '' : 'pointer-events-none'
+          }`}
           style={orbStyle}
         >
           <span className="voice-orb__shadow" aria-hidden="true" />
@@ -1856,7 +1860,6 @@ function AssistantPanel({
           <span className="sr-only">
             {showDebug && logs.length > 0 ? `Último evento: ${logs[logs.length - 1]?.text}. ` : ''}
             {hasBlockingIssue ? `Incidencia: ${issueMessage}. ` : ''}
-            {status === 'connected' ? 'Doble toque para cerrar la sesión de voz.' : ''}
           </span>
         </button>
       </div>
