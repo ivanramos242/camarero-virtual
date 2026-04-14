@@ -59,6 +59,7 @@ const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
 const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
 const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
 const LOCAL_FALLBACK_SPEECH_DELAY_MS = 450;
+const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_200;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -685,6 +686,7 @@ export function useLiveSession({
   const turnRecoveryTimeoutRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const fallbackSpeechTimeoutRef = useRef<number | null>(null);
+  const assistantSpeechTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const currentTurnHadAudioOutputRef = useRef(false);
@@ -781,6 +783,13 @@ export function useLiveSession({
     if (fallbackSpeechTimeoutRef.current) {
       window.clearTimeout(fallbackSpeechTimeoutRef.current);
       fallbackSpeechTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearAssistantSpeechTimeout = useCallback(() => {
+    if (assistantSpeechTimeoutRef.current) {
+      window.clearTimeout(assistantSpeechTimeoutRef.current);
+      assistantSpeechTimeoutRef.current = null;
     }
   }, []);
 
@@ -905,6 +914,7 @@ export function useLiveSession({
 
   const resetAssistantTurnTracking = useCallback(() => {
     clearFallbackSpeechTimeout();
+    clearAssistantSpeechTimeout();
     playedAudioChunksRef.current.clear();
     currentTurnHadAudioOutputRef.current = false;
     lastSpokenOutputSignatureRef.current = '';
@@ -923,7 +933,7 @@ export function useLiveSession({
     pendingConfirmationPromptRef.current = '';
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
-  }, [clearFallbackSpeechTimeout]);
+  }, [clearAssistantSpeechTimeout, clearFallbackSpeechTimeout]);
 
   const cancelLocalSpeech = useCallback(() => {
     localSpeechUtteranceRef.current = null;
@@ -1003,6 +1013,7 @@ export function useLiveSession({
       clearTurnRecoveryTimeout();
       clearReconnectTimeout();
       clearFallbackSpeechTimeout();
+      clearAssistantSpeechTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
       sessionPromiseRef.current = null;
@@ -1034,7 +1045,7 @@ export function useLiveSession({
       setStatusSafe(nextStatus);
       setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearFallbackSpeechTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearAssistantSpeechTimeout, clearCaptureTeardownTimeout, clearFallbackSpeechTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -1535,6 +1546,33 @@ export function useLiveSession({
     [clearFallbackSpeechTimeout, finalizeTurnIfReady, shouldUseLocalFallbackSpeech, speakFallbackMessage],
   );
 
+  const scheduleAssistantTranscriptSpeech = useCallback(
+    (message: string) => {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage) {
+        return false;
+      }
+
+      clearAssistantSpeechTimeout();
+      assistantSpeechTimeoutRef.current = window.setTimeout(() => {
+        assistantSpeechTimeoutRef.current = null;
+
+        if (currentTurnHadAudioOutputRef.current || localSpeechUtteranceRef.current || !lastAssistantTextRef.current.trim()) {
+          finalizeTurnIfReady();
+          return;
+        }
+
+        const spoke = speakWithLocalVoice(lastAssistantTextRef.current);
+        if (!spoke) {
+          finalizeTurnIfReady();
+        }
+      }, ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS);
+
+      return true;
+    },
+    [clearAssistantSpeechTimeout, finalizeTurnIfReady, speakWithLocalVoice],
+  );
+
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1896,6 +1934,7 @@ export function useLiveSession({
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+              clearAssistantSpeechTimeout();
               currentTurnHadAssistantOutputRef.current = true;
               currentTurnHadAudioOutputRef.current = true;
               if (localSpeechUtteranceRef.current) {
@@ -1949,6 +1988,7 @@ export function useLiveSession({
             }
 
             if (message.serverContent?.interrupted) {
+              clearAssistantSpeechTimeout();
               stopPlayback();
               cancelLocalSpeech();
               resetAssistantTurnTracking();
@@ -1976,10 +2016,11 @@ export function useLiveSession({
                 !currentTurnHadAudioOutputRef.current &&
                 lastAssistantTextRef.current.trim() &&
                 (!assistantClaimsMutation || hadVerifiedMutation);
+              let scheduledAssistantSpeech = false;
               if (canSpeakAssistantText) {
-                speakWithLocalVoice(lastAssistantTextRef.current);
+                scheduledAssistantSpeech = scheduleAssistantTranscriptSpeech(lastAssistantTextRef.current);
               }
-              if (!handledLocally) {
+              if (!handledLocally && !scheduledAssistantSpeech) {
                 finalizeTurnIfReady();
               }
             }
@@ -2040,6 +2081,7 @@ export function useLiveSession({
     geminiTools,
     runTool,
     runVoiceDiagnostics,
+    clearAssistantSpeechTimeout,
     clearReconnectTimeout,
     resetSession,
     setPreferredAudioSession,
@@ -2048,6 +2090,7 @@ export function useLiveSession({
     stopPlayback,
     cancelLocalSpeech,
     speakWithLocalVoice,
+    scheduleAssistantTranscriptSpeech,
     systemInstruction,
   ]);
 
