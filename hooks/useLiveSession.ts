@@ -1070,14 +1070,14 @@ export function useLiveSession({
   const addToOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'addToOrder',
-      description: 'Anade un plato nuevo al pedido actual usando preferiblemente el menuItemId exacto de la carta. Incluye siempre quantity y usa notes para observaciones como sin hielo, sin cebolla, con salsa aparte o para compartir.',
+      description: 'Anade un plato nuevo al pedido actual usando preferiblemente el menuItemId exacto de la carta.',
       parameters: {
         type: Type.OBJECT,
         properties: {
           menuItemId: { type: Type.STRING, description: 'ID exacto del plato en la carta. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato' },
-          quantity: { type: Type.NUMBER, description: 'Cantidad solicitada. Obligatoria cuando el cliente indique una cantidad explicita.' },
-          notes: { type: Type.STRING, description: 'Observaciones del cliente: por ejemplo sin hielo, sin cebolla, con salsa aparte o para compartir.' },
+          quantity: { type: Type.NUMBER, description: 'Cantidad solicitada' },
+          notes: { type: Type.STRING, description: 'Observaciones' },
         },
         required: ['quantity'],
       },
@@ -1088,7 +1088,7 @@ export function useLiveSession({
   const removeFromOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'removeFromOrder',
-      description: 'Quita una o varias unidades del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido. Usa notes si la correccion afecta a una linea concreta con observaciones.',
+      description: 'Quita una o varias unidades del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido.',
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -1161,22 +1161,10 @@ export function useLiveSession({
         result = { success: true, message: `${count} comensales actualizados.` };
       } else if (name === 'addToOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
-        const requestedQuantity = Number(args.quantity);
-        const hasExplicitQuantity = Number.isFinite(requestedQuantity) && requestedQuantity > 0;
-        const transcript = latestInputTranscriptRef.current.trim();
-        const derivedTranscriptAdds = transcript ? extractMultipleAddIntents(transcript, menuRef.current) : [];
-        const derivedTranscriptAdd = derivedTranscriptAdds.length === 1 ? derivedTranscriptAdds[0] : null;
+        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
+        const notes = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
         const match = findMenuItemMatch(menuRef.current, args);
         const item = match.item;
-        const quantity =
-          item && !hasExplicitQuantity && derivedTranscriptAdd?.item.id === item.id
-            ? derivedTranscriptAdd.quantity
-            : Math.max(1, Math.min(12, hasExplicitQuantity ? requestedQuantity : 1));
-        const notesFromArgs = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
-        const notes =
-          notesFromArgs ||
-          (item && derivedTranscriptAdd?.item.id === item.id ? derivedTranscriptAdd.notes : undefined) ||
-          (transcript ? extractVoiceNotes(transcript) : undefined);
         pendingAddFallbackRef.current = {
           itemName: typeof args.itemName === 'string' ? args.itemName : undefined,
           menuItemId: typeof args.menuItemId === 'string' ? args.menuItemId : undefined,
@@ -1206,27 +1194,13 @@ export function useLiveSession({
         }
       } else if (name === 'removeFromOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
-        const requestedQuantity = Number(args.quantity);
-        const hasExplicitQuantity = Number.isFinite(requestedQuantity) && requestedQuantity > 0;
-        const transcript = latestInputTranscriptRef.current.trim();
-        const currentOrderItems = cartItemsRef.current.map((cartItem) => cartItem.menuItem);
-        const derivedTranscriptRemovals = transcript ? extractMultipleRemoveIntents(transcript, cartItemsRef.current) : [];
-        const notesFromArgs = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
+        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
+        const notes = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
         const match = findMenuItemMatch(
-          currentOrderItems,
+          cartItemsRef.current.map((cartItem) => cartItem.menuItem),
           args,
         );
         const item = match.item;
-        const derivedTranscriptRemoval =
-          item && derivedTranscriptRemovals.find((entry) => entry.item.id === item.id) ? derivedTranscriptRemovals.find((entry) => entry.item.id === item.id)! : null;
-        const quantity =
-          item && !hasExplicitQuantity && derivedTranscriptRemoval
-            ? derivedTranscriptRemoval.quantity
-            : Math.max(1, Math.min(12, hasExplicitQuantity ? requestedQuantity : 1));
-        const notes =
-          notesFromArgs ||
-          (item && derivedTranscriptRemoval ? derivedTranscriptRemoval.notes : undefined) ||
-          (transcript ? extractVoiceNotes(transcript) : undefined);
 
         if (!item) {
           const suggestions = match.candidates.slice(0, 3).map((candidate) => candidate.name).join(', ');
