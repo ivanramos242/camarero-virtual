@@ -58,6 +58,7 @@ const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
 const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
 const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
 const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
+const LOCAL_FALLBACK_SPEECH_DELAY_MS = 450;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -190,6 +191,26 @@ function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
 
   const simplifiedMatch = resolveMenuItemMatch(dedupeMenuItems(items), simplifiedQuery);
   return simplifiedMatch.requiresClarification ? null : simplifiedMatch.item;
+}
+
+function transcriptMentionsMenuItem(rawTranscript: string, items: MenuItem[]) {
+  const normalizedTranscript = normalizeVoiceText(rawTranscript);
+  if (!normalizedTranscript) {
+    return false;
+  }
+
+  return items.some((item) => {
+    const candidates = [item.name, ...(item.voiceAliases ?? [])]
+      .map((value) => normalizeVoiceText(value))
+      .filter(Boolean);
+
+    return candidates.some(
+      (candidate) =>
+        normalizedTranscript.includes(candidate) ||
+        candidate.includes(normalizedTranscript) ||
+        candidate.split(' ').some((token) => token.length > 2 && normalizedTranscript.includes(token)),
+    );
+  });
 }
 
 function findMenuItemMatch(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
@@ -403,7 +424,10 @@ export function getTurnRecoveryTimeoutMs({
 
 function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
   const normalized = normalizeVoiceText(transcript);
-  if (!/\b(pon|ponme|ponnos|trae|traeme|traenos|anade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized)) {
+  if (
+    !/\b(pon|ponme|ponnos|trae|traeme|traenos|anade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized) &&
+    !transcriptMentionsMenuItem(transcript, menuItems)
+  ) {
     return [];
   }
 
@@ -592,7 +616,7 @@ export function parseLocalVoiceIntent(
   }
 
   const wantsAdd = /\b(pon|ponme|ponnos|trae|traeme|traenos|anade|añade|dame|danos|quiero|queria|me pones|para mi)\b/.test(normalized);
-  if (wantsAdd || menuItems.some((item) => normalized.includes(normalizeVoiceText(item.name)))) {
+  if (wantsAdd || transcriptMentionsMenuItem(transcript, menuItems)) {
     const multipleItems = extractMultipleAddIntents(transcript, menuItems);
     if (multipleItems.length > 1) {
       return { type: 'addMany', items: multipleItems };
@@ -660,6 +684,7 @@ export function useLiveSession({
   const captureTeardownTimeoutRef = useRef<number | null>(null);
   const turnRecoveryTimeoutRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const fallbackSpeechTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const currentTurnHadAudioOutputRef = useRef(false);
@@ -749,6 +774,13 @@ export function useLiveSession({
     if (reconnectTimeoutRef.current) {
       window.clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearFallbackSpeechTimeout = useCallback(() => {
+    if (fallbackSpeechTimeoutRef.current) {
+      window.clearTimeout(fallbackSpeechTimeoutRef.current);
+      fallbackSpeechTimeoutRef.current = null;
     }
   }, []);
 
@@ -872,6 +904,7 @@ export function useLiveSession({
   }, []);
 
   const resetAssistantTurnTracking = useCallback(() => {
+    clearFallbackSpeechTimeout();
     playedAudioChunksRef.current.clear();
     currentTurnHadAudioOutputRef.current = false;
     lastSpokenOutputSignatureRef.current = '';
@@ -890,7 +923,7 @@ export function useLiveSession({
     pendingConfirmationPromptRef.current = '';
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
-  }, []);
+  }, [clearFallbackSpeechTimeout]);
 
   const cancelLocalSpeech = useCallback(() => {
     localSpeechUtteranceRef.current = null;
@@ -969,6 +1002,7 @@ export function useLiveSession({
       clearCaptureTeardownTimeout();
       clearTurnRecoveryTimeout();
       clearReconnectTimeout();
+      clearFallbackSpeechTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
       sessionPromiseRef.current = null;
@@ -1000,7 +1034,7 @@ export function useLiveSession({
       setStatusSafe(nextStatus);
       setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearCaptureTeardownTimeout, clearFallbackSpeechTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -1471,6 +1505,36 @@ export function useLiveSession({
     [addLog, speakWithLocalVoice],
   );
 
+  const shouldUseLocalFallbackSpeech = useCallback(() => {
+    return !currentTurnHadAudioOutputRef.current && !currentTurnHadAssistantOutputRef.current;
+  }, []);
+
+  const concludeHandledTurn = useCallback(
+    (fallbackMessage?: string) => {
+      clearFallbackSpeechTimeout();
+
+      if (!fallbackMessage || !shouldUseLocalFallbackSpeech()) {
+        finalizeTurnIfReady();
+        return;
+      }
+
+      fallbackSpeechTimeoutRef.current = window.setTimeout(() => {
+        fallbackSpeechTimeoutRef.current = null;
+
+        if (shouldUseLocalFallbackSpeech()) {
+          const spokeFallback = speakFallbackMessage(fallbackMessage);
+          if (!spokeFallback) {
+            finalizeTurnIfReady();
+          }
+          return;
+        }
+
+        finalizeTurnIfReady();
+      }, LOCAL_FALLBACK_SPEECH_DELAY_MS);
+    },
+    [clearFallbackSpeechTimeout, finalizeTurnIfReady, shouldUseLocalFallbackSpeech, speakFallbackMessage],
+  );
+
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1492,12 +1556,9 @@ export function useLiveSession({
     applyCartAdd(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
     addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
-    if (!currentTurnHadAudioOutputRef.current) {
-      speakFallbackMessage(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
-    }
-    finalizeTurnIfReady();
+    concludeHandledTurn(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
     return true;
-  }, [addLog, applyCartAdd, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
+  }, [addLog, applyCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
 
   const tryHandleLocalIntent = useCallback(async () => {
     const transcript = latestInputTranscriptRef.current.trim();
@@ -1526,10 +1587,7 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
-      if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
-      }
-      finalizeTurnIfReady();
+      concludeHandledTurn(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
       return true;
     }
 
@@ -1548,10 +1606,7 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: anadidos ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
       );
-      if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(`He añadido ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')} al pedido.`);
-      }
-      finalizeTurnIfReady();
+      concludeHandledTurn(`He añadido ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')} al pedido.`);
       return true;
     }
 
@@ -1565,10 +1620,7 @@ export function useLiveSession({
       if (removal.requiresClarification && removal.matchingLines?.length) {
         const clarificationMessage = buildRemoveClarificationMessage(intent.item.name, removal.matchingLines);
         addLog('error', clarificationMessage);
-        if (!currentTurnHadAudioOutputRef.current) {
-          speakFallbackMessage(clarificationMessage);
-        }
-        finalizeTurnIfReady();
+        concludeHandledTurn(clarificationMessage);
         return true;
       }
       if (removal.removedQuantity <= 0) {
@@ -1578,10 +1630,7 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnRemovedFromOrderRef.current = true;
       addLog('system', `Fallback local silencioso: quitadas ${removal.removedQuantity} unidades de ${intent.item.name}.`);
-      if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(`He quitado ${removal.removedQuantity} ${intent.item.name} del pedido.`);
-      }
-      finalizeTurnIfReady();
+      concludeHandledTurn(`He quitado ${removal.removedQuantity} ${intent.item.name} del pedido.`);
       return true;
     }
 
@@ -1599,10 +1648,7 @@ export function useLiveSession({
           : null;
       if (clarificationMessage) {
         addLog('error', clarificationMessage);
-        if (!currentTurnHadAudioOutputRef.current) {
-          speakFallbackMessage(clarificationMessage);
-        }
-        finalizeTurnIfReady();
+        concludeHandledTurn(clarificationMessage);
         return true;
       }
       if (removal.removedQuantity <= 0) {
@@ -1615,10 +1661,7 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitados ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
       );
-      if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(`He actualizado el pedido y he quitado ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')}.`);
-      }
-      finalizeTurnIfReady();
+      concludeHandledTurn(`He actualizado el pedido y he quitado ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')}.`);
       return true;
     }
 
@@ -1636,10 +1679,7 @@ export function useLiveSession({
           : null;
       if (removeAllClarificationMessage) {
         addLog('error', removeAllClarificationMessage);
-        if (!currentTurnHadAudioOutputRef.current) {
-          speakFallbackMessage(removeAllClarificationMessage);
-        }
-        finalizeTurnIfReady();
+        concludeHandledTurn(removeAllClarificationMessage);
         return true;
       }
       if (removal.removedQuantity <= 0) {
@@ -1652,11 +1692,8 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: quitado todo excepto ${intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada'}.`,
       );
-      if (!currentTurnHadAudioOutputRef.current) {
-        const keptItems = intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada';
-        speakFallbackMessage(`He quitado todo del pedido excepto ${keptItems}.`);
-      }
-      finalizeTurnIfReady();
+      const keptItems = intent.keepItems.length > 0 ? intent.keepItems.map((item) => item.name).join(', ') : 'nada';
+      concludeHandledTurn(`He quitado todo del pedido excepto ${keptItems}.`);
       return true;
     }
 
@@ -1671,19 +1708,16 @@ export function useLiveSession({
         currentTurnLocallyHandledRef.current = false;
         return false;
       }
-      if (!currentTurnHadAudioOutputRef.current) {
-        speakFallbackMessage(
-          confirmation.success
-            ? 'Pedido confirmado y enviado a cocina.'
-            : buildOrderConfirmationPrompt(cartItemsRef.current),
-        );
-      }
-      finalizeTurnIfReady();
+      concludeHandledTurn(
+        confirmation.success
+          ? 'Pedido confirmado y enviado a cocina.'
+          : buildOrderConfirmationPrompt(cartItemsRef.current),
+      );
       return true;
     }
 
     return false;
-  }, [addLog, applyCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, finalizeTurnIfReady, resetPendingOrderConfirmation, speakFallbackMessage]);
+  }, [addLog, applyCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation]);
 
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
@@ -1932,10 +1966,7 @@ export function useLiveSession({
                 pendingConfirmationPromptRef.current
               ) {
                 handledLocally = true;
-                const spokeFallback = speakFallbackMessage(pendingConfirmationPromptRef.current);
-                if (!spokeFallback) {
-                  finalizeTurnIfReady();
-                }
+                concludeHandledTurn(pendingConfirmationPromptRef.current);
               }
               const assistantClaimsMutation = assistantTextClaimsMutation(lastAssistantTextRef.current);
               const hadVerifiedMutation =
@@ -2003,6 +2034,7 @@ export function useLiveSession({
     branding.assistantName,
     branding.showDebugTools,
     createSessionToken,
+    concludeHandledTurn,
     ensureAudioPipeline,
     finalizeTurnIfReady,
     geminiTools,

@@ -79,6 +79,24 @@ describe('parseLocalVoiceIntent', () => {
     expect(intent.type).toBe('add');
   });
 
+  it('detecta un pedido natural por alias aunque el cliente no use un verbo explicito', () => {
+    const intent = parseLocalVoiceIntent('dos croquetas', [croquetas, tarta], []);
+    expect(intent.type).toBe('add');
+    if (intent.type !== 'add') {
+      throw new Error('Se esperaba una intencion de alta por alias.');
+    }
+    expect(intent.quantity).toBe(2);
+  });
+
+  it('detecta varios platos por alias en una frase natural sin verbo explicito', () => {
+    const intent = parseLocalVoiceIntent('croquetas y una tarta', [croquetas, tarta], []);
+    expect(intent.type).toBe('addMany');
+    if (intent.type !== 'addMany') {
+      throw new Error('Se esperaba una intencion de alta multiple.');
+    }
+    expect(intent.items).toHaveLength(2);
+  });
+
   it('conserva las observaciones al detectar un alta clara de pedido', () => {
     const intent = parseLocalVoiceIntent('ponme dos croquetas sin gluten', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
