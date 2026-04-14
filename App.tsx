@@ -1104,7 +1104,6 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       await voiceSession.requestMicrophoneAccess();
       await voiceSession.prepareVoiceSession();
       setIsVoiceModalOpen(true);
-      voiceSession.playWelcomeMessage();
     } catch {
       setIsVoiceModalOpen(false);
     } finally {

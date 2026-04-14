@@ -176,10 +176,6 @@ function buildRemoveClarificationMessage(itemName: string, matchingLines: CartIt
   return `Tengo varias lineas para ${itemName}: ${variants}. Dime cual quieres quitar exactamente.`;
 }
 
-export function buildVoiceWelcomeMessage(assistantName: string) {
-  return `Hola, soy ${assistantName}. Micrófono activado. Puedo recomendarte platos, resolver dudas de la carta y tomar tu pedido. Mantén pulsado para hablar.`;
-}
-
 function isExplicitFinalConfirmation(transcript: string) {
   const normalized = normalizeVoiceText(transcript);
   return /\b(si|sí|confirmo|confirmar|confirmar pedido|correcto|perfecto|adelante|vale|ok|de acuerdo|envialo|mandalo)\b/.test(normalized);
@@ -1315,12 +1311,6 @@ export function useLiveSession({
     [addLog, speakWithLocalVoice],
   );
 
-  const playWelcomeMessage = useCallback(() => {
-    const message = buildVoiceWelcomeMessage(branding.assistantName);
-
-    return speakFallbackMessage(message);
-  }, [branding.assistantName, speakFallbackMessage]);
-
   const tryHandlePendingAddFallback = useCallback(() => {
     if (currentTurnAddedToOrderRef.current || !pendingAddFallbackRef.current) {
       return false;
@@ -1971,7 +1961,6 @@ export function useLiveSession({
     turnState,
     requestMicrophoneAccess,
     prepareVoiceSession,
-    playWelcomeMessage,
     beginPressToTalk,
     endPressToTalk,
     cancelCurrentResponse,
