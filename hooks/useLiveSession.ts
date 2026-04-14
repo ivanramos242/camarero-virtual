@@ -54,7 +54,10 @@ const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
 const MAX_AUTO_RECONNECT_ATTEMPTS = 2;
-const TURN_RECOVERY_TIMEOUT_MS = 6_000;
+const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
+const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
+const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
+const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -279,6 +282,27 @@ interface PendingAddFallback {
   menuItemId?: string;
   quantity: number;
   notes?: string;
+}
+
+interface TurnRecoveryTimeoutOptions {
+  reason: string;
+  queuedAudioMs: number;
+  hasLocalSpeech: boolean;
+}
+
+export function getTurnRecoveryTimeoutMs({
+  reason,
+  queuedAudioMs,
+  hasLocalSpeech,
+}: TurnRecoveryTimeoutOptions) {
+  if (reason === 'espera de respuesta') {
+    return TURN_RECOVERY_PROCESSING_TIMEOUT_MS;
+  }
+
+  const playbackWindowMs = Math.max(0, Math.ceil(queuedAudioMs + TURN_RECOVERY_AUDIO_GRACE_MS));
+  const localSpeechWindowMs = hasLocalSpeech ? TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS : 0;
+
+  return Math.max(TURN_RECOVERY_SPEAKING_TIMEOUT_MS, playbackWindowMs, localSpeechWindowMs);
 }
 
 function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
@@ -1206,9 +1230,23 @@ export function useLiveSession({
     }
   }, [clearCaptureTeardownTimeout, clearTurnRecoveryTimeout, disconnect, scheduleAudioCaptureTeardown, setTurnStateSafe]);
 
+  const getQueuedPlaybackMs = useCallback(() => {
+    if (!audioContextRef.current) {
+      return 0;
+    }
+
+    return Math.max(0, (nextStartTimeRef.current - audioContextRef.current.currentTime) * 1_000);
+  }, []);
+
   const scheduleTurnRecovery = useCallback(
     (reason: string) => {
       clearTurnRecoveryTimeout();
+      const timeoutMs = getTurnRecoveryTimeoutMs({
+        reason,
+        queuedAudioMs: getQueuedPlaybackMs(),
+        hasLocalSpeech: Boolean(localSpeechUtteranceRef.current),
+      });
+
       turnRecoveryTimeoutRef.current = window.setTimeout(() => {
         if (turnStateRef.current !== 'processing' && turnStateRef.current !== 'speaking') {
           return;
@@ -1222,9 +1260,9 @@ export function useLiveSession({
         setTurnStateSafe('idle');
         setVolumeLevel(0);
         scheduleAudioCaptureTeardown();
-      }, TURN_RECOVERY_TIMEOUT_MS);
+      }, timeoutMs);
     },
-    [addLog, cancelLocalSpeech, clearTurnRecoveryTimeout, scheduleAudioCaptureTeardown, setTurnStateSafe, stopPlayback],
+    [addLog, cancelLocalSpeech, clearTurnRecoveryTimeout, getQueuedPlaybackMs, scheduleAudioCaptureTeardown, setTurnStateSafe, stopPlayback],
   );
 
   useEffect(() => {
@@ -1275,6 +1313,14 @@ export function useLiveSession({
       localSpeechUtteranceRef.current = utterance;
       setTurnStateSafe('speaking');
       scheduleTurnRecovery('voz local');
+
+      utterance.onstart = () => {
+        scheduleTurnRecovery('voz local');
+      };
+
+      utterance.onboundary = () => {
+        scheduleTurnRecovery('voz local');
+      };
 
       utterance.onend = () => {
         if (localSpeechUtteranceRef.current === utterance) {
@@ -1738,6 +1784,9 @@ export function useLiveSession({
                   sourcesRef.current.add(source);
                   source.onended = () => {
                     sourcesRef.current.delete(source);
+                    if (sourcesRef.current.size > 0) {
+                      scheduleTurnRecovery('audio remoto');
+                    }
                     if (modelTurnCompleteRef.current) {
                       finalizeTurnIfReady();
                     }

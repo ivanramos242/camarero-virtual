@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CartItem, MenuItem } from '../types';
-import { parseLocalVoiceIntent } from './useLiveSession';
+import { getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
 
 const croquetas: MenuItem = {
   id: 'croquetas-caseras',
@@ -40,6 +40,36 @@ function createCartLine(id: string, menuItem: MenuItem, quantity: number, notes?
 }
 
 describe('parseLocalVoiceIntent', () => {
+  it('amplia la ventana de recuperación cuando Ramiro aún tiene audio en cola', () => {
+    expect(
+      getTurnRecoveryTimeoutMs({
+        reason: 'audio remoto',
+        queuedAudioMs: 20_000,
+        hasLocalSpeech: false,
+      }),
+    ).toBe(22_500);
+  });
+
+  it('mantiene una ventana amplia para voz local y evita cortar frases largas', () => {
+    expect(
+      getTurnRecoveryTimeoutMs({
+        reason: 'voz local',
+        queuedAudioMs: 0,
+        hasLocalSpeech: true,
+      }),
+    ).toBe(22_000);
+  });
+
+  it('usa una espera distinta cuando Ramiro aún está pensando y no hablando', () => {
+    expect(
+      getTurnRecoveryTimeoutMs({
+        reason: 'espera de respuesta',
+        queuedAudioMs: 20_000,
+        hasLocalSpeech: true,
+      }),
+    ).toBe(12_000);
+  });
+
   it('prioriza anadir frente a confirmacion cuando la frase mezcla ambas cosas', () => {
     const intent = parseLocalVoiceIntent('ponme una tarta de queso y ya estaria', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
