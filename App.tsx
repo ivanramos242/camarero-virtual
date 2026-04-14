@@ -710,31 +710,36 @@ interface DiningPageProps {
 }
 
 interface OrderStripProps {
+  cartUnits: number;
   totalPrice: number;
   onOpen: () => void;
   variant: 'desktop' | 'mobile';
 }
 
-function OrderStrip({ totalPrice, onOpen, variant }: OrderStripProps) {
+function OrderStrip({ cartUnits, totalPrice, onOpen, variant }: OrderStripProps) {
   const isMobile = variant === 'mobile';
 
   return (
     <div
       className={
         isMobile
-          ? 'flex min-h-14 flex-1 items-center gap-3 rounded-xl bg-stone-900 px-4 py-3 text-white shadow-lg shadow-stone-950/20'
-          : 'panel flex items-center gap-3 px-4 py-3'
+          ? 'flex min-h-12 flex-1 items-center gap-2.5 rounded-xl bg-stone-900 px-3 py-2.5 text-white shadow-lg shadow-stone-950/20'
+          : 'panel flex items-center gap-2.5 px-3 py-2.5'
       }
     >
-      <span
-        className={
-          isMobile
-            ? 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white'
-            : 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-stone-900 text-white'
-        }
-        aria-hidden="true"
-      >
+      <span className="relative flex h-8 w-8 shrink-0 items-center justify-center" aria-hidden="true">
         <ShoppingCart size={18} />
+        {cartUnits > 0 ? (
+          <span
+            className={
+              isMobile
+                ? 'absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-bold leading-4 text-stone-900'
+                : 'absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-stone-900 px-1 text-[10px] font-bold leading-4 text-white'
+            }
+          >
+            {cartUnits}
+          </span>
+        ) : null}
       </span>
 
       <span className={`min-w-0 flex-1 truncate text-sm font-semibold ${isMobile ? 'text-white' : 'text-stone-900'}`}>
@@ -744,7 +749,7 @@ function OrderStrip({ totalPrice, onOpen, variant }: OrderStripProps) {
       <span
         className={
           isMobile
-            ? 'shrink-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white'
+            ? 'shrink-0 text-sm font-semibold text-white'
             : 'shrink-0 text-sm font-semibold text-stone-900'
         }
       >
@@ -756,11 +761,11 @@ function OrderStrip({ totalPrice, onOpen, variant }: OrderStripProps) {
         onClick={onOpen}
         className={
           isMobile
-            ? 'inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-100'
-            : 'inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-900 transition hover:bg-stone-50'
+            ? 'inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-stone-900 transition hover:bg-stone-100'
+            : 'inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-900 transition hover:bg-stone-50'
         }
       >
-        Ver todo
+        Ver
       </button>
     </div>
   );
@@ -1137,6 +1142,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
     () => cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0),
     [cartItems],
   );
+  const cartUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.quantity, 0), [cartItems]);
 
   const latestVoiceError = useMemo(() => {
     const latestError = [...voiceSession.logs].reverse().find((log) => log.role === 'error');
@@ -1355,7 +1361,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
         </section>
 
         <aside className="hidden space-y-6 lg:block">
-          <OrderStrip totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="desktop" />
+          <OrderStrip cartUnits={cartUnits} totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="desktop" />
 
           {ordersLoading ? (
             <section className="panel flex items-center gap-3 px-5 py-4 text-sm text-stone-500">
@@ -1384,7 +1390,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       <div className="h-56 lg:h-40" />
 
       <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-40 flex items-stretch gap-3 lg:hidden">
-        <OrderStrip totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="mobile" />
+        <OrderStrip cartUnits={cartUnits} totalPrice={totalPrice} onOpen={() => setIsCartOpen(true)} variant="mobile" />
 
         {branding.voiceEnabled ? (
           <button
