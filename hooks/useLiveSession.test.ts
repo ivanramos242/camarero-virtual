@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CartItem, MenuItem } from '../types';
-import { getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
+import { extractVoiceNotes, getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
 
 const croquetas: MenuItem = {
   id: 'croquetas-caseras',
@@ -70,9 +70,23 @@ describe('parseLocalVoiceIntent', () => {
     ).toBe(12_000);
   });
 
+  it('extrae observaciones habituales del pedido desde la frase del cliente', () => {
+    expect(extractVoiceNotes('ponme una coca cola sin hielo y para compartir')).toBe('sin hielo, para compartir');
+  });
+
   it('prioriza anadir frente a confirmacion cuando la frase mezcla ambas cosas', () => {
     const intent = parseLocalVoiceIntent('ponme una tarta de queso y ya estaria', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
+  });
+
+  it('conserva las observaciones al detectar un alta clara de pedido', () => {
+    const intent = parseLocalVoiceIntent('ponme dos croquetas sin gluten', [croquetas, tarta], []);
+    expect(intent.type).toBe('add');
+    if (intent.type !== 'add') {
+      throw new Error('Se esperaba una intencion de alta.');
+    }
+    expect(intent.quantity).toBe(2);
+    expect(intent.notes).toBe('sin gluten');
   });
 
   it('prioriza quitar frente a confirmacion cuando la frase mezcla ambas cosas', () => {

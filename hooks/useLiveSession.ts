@@ -106,6 +106,23 @@ const VOICE_STOP_WORDS = new Set([
   'estaria',
 ]);
 
+const VOICE_QUANTITY_WORDS = new Set([
+  'un',
+  'uno',
+  'una',
+  'dos',
+  'tres',
+  'cuatro',
+  'cinco',
+  'seis',
+  'siete',
+  'ocho',
+  'nueve',
+  'diez',
+  'once',
+  'doce',
+]);
+
 function normalizeVoiceText(value: string) {
   return value
     .normalize('NFD')
@@ -135,8 +152,20 @@ function resolveBestMenuItemMatch(items: MenuItem[], rawQuery: string, menuItemI
     return initialMatch;
   }
 
-  const cleanedQuery = tokenizeVoiceText(rawQuery).join(' ');
-  if (!cleanedQuery || cleanedQuery === normalizeVoiceText(rawQuery)) {
+  const strippedQuery = stripVoiceNotes(rawQuery);
+  if (strippedQuery && strippedQuery !== rawQuery.trim()) {
+    const strippedMatch = resolveMenuItemMatch(uniqueItems, strippedQuery, menuItemId);
+    if (strippedMatch.item) {
+      return strippedMatch;
+    }
+
+    if (strippedMatch.confidence > initialMatch.confidence) {
+      return strippedMatch;
+    }
+  }
+
+  const cleanedQuery = buildSimplifiedVoiceQuery(rawQuery);
+  if (!cleanedQuery || cleanedQuery === normalizeVoiceText(stripVoiceNotes(rawQuery))) {
     return initialMatch;
   }
 
@@ -150,7 +179,17 @@ function resolveBestMenuItemMatch(items: MenuItem[], rawQuery: string, menuItemI
 
 function resolveMenuItemFromVoiceQuery(items: MenuItem[], rawQuery: string) {
   const match = resolveBestMenuItemMatch(items, rawQuery);
-  return match.requiresClarification ? null : match.item;
+  if (!match.requiresClarification) {
+    return match.item;
+  }
+
+  const simplifiedQuery = buildSimplifiedVoiceQuery(rawQuery);
+  if (!simplifiedQuery) {
+    return null;
+  }
+
+  const simplifiedMatch = resolveMenuItemMatch(dedupeMenuItems(items), simplifiedQuery);
+  return simplifiedMatch.requiresClarification ? null : simplifiedMatch.item;
 }
 
 function findMenuItemMatch(items: MenuItem[], args: Record<string, unknown>, nameKey: 'itemName' | 'menuItemId' = 'itemName') {
@@ -269,11 +308,11 @@ function getPlaybackTuning() {
 type SupportedAudioSessionType = 'auto' | 'playback' | 'play-and-record';
 
 type LocalVoiceIntent =
-  | { type: 'add'; item: MenuItem; quantity: number }
-  | { type: 'addMany'; items: Array<{ item: MenuItem; quantity: number }> }
-  | { type: 'remove'; item: MenuItem; quantity: number }
-  | { type: 'removeMany'; items: Array<{ item: MenuItem; quantity: number }> }
-  | { type: 'removeAllExcept'; items: Array<{ item: MenuItem; quantity: number }>; keepItems: MenuItem[] }
+  | { type: 'add'; item: MenuItem; quantity: number; notes?: string }
+  | { type: 'addMany'; items: Array<{ item: MenuItem; quantity: number; notes?: string }> }
+  | { type: 'remove'; item: MenuItem; quantity: number; notes?: string }
+  | { type: 'removeMany'; items: Array<{ item: MenuItem; quantity: number; notes?: string }> }
+  | { type: 'removeAllExcept'; items: Array<{ item: MenuItem; quantity: number; notes?: string }>; keepItems: MenuItem[] }
   | { type: 'confirm' }
   | { type: 'unknown' };
 
@@ -282,6 +321,63 @@ interface PendingAddFallback {
   menuItemId?: string;
   quantity: number;
   notes?: string;
+}
+
+function normalizeVoiceNote(value: string) {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(/[,.]+$/g, '')
+    .trim();
+}
+
+function getVoiceNotePatterns() {
+  return [
+    /\bpara compartir\b/gi,
+    /\bsin [a-z0-9]+(?: [a-z0-9]+){0,1}\b/gi,
+    /\bcon [a-z0-9]+(?: [a-z0-9]+){0,2} aparte\b/gi,
+    /\b[a-z0-9]+ aparte\b/gi,
+    /\b(?:muy hecho|bien hecho|poco hecho|al punto)\b/gi,
+    /\b(?:sin|con) hielo\b/gi,
+    /\b(?:sin|con) picante\b/gi,
+    /\bextra de [a-z0-9]+(?: [a-z0-9]+){0,2}\b/gi,
+  ];
+}
+
+export function extractVoiceNotes(rawText: string) {
+  const matches: string[] = [];
+  const segments = rawText
+    .split(/\s*(?:,| y | e | pero )\s*/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  for (const segment of segments) {
+    for (const pattern of getVoiceNotePatterns()) {
+      for (const match of segment.matchAll(pattern)) {
+        const value = normalizeVoiceNote(match[0] ?? '');
+        if (value && !matches.includes(value)) {
+          matches.push(value);
+        }
+      }
+    }
+  }
+
+  return matches.length > 0 ? matches.join(', ') : undefined;
+}
+
+function stripVoiceNotes(rawText: string) {
+  let cleanedText = rawText;
+
+  for (const pattern of getVoiceNotePatterns()) {
+    cleanedText = cleanedText.replace(pattern, ' ');
+  }
+
+  return cleanedText.replace(/\s+/g, ' ').trim();
+}
+
+function buildSimplifiedVoiceQuery(rawText: string) {
+  return tokenizeVoiceText(stripVoiceNotes(rawText))
+    .filter((token) => !VOICE_QUANTITY_WORDS.has(token) && !/^\d+$/.test(token))
+    .join(' ');
 }
 
 interface TurnRecoveryTimeoutOptions {
@@ -316,7 +412,7 @@ function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
     .map((segment) => segment.trim())
     .filter(Boolean);
 
-  const merged = new Map<string, { item: MenuItem; quantity: number }>();
+  const merged = new Map<string, { item: MenuItem; quantity: number; notes?: string }>();
 
   for (const segment of segments) {
     const matchedItem = resolveMenuItemFromVoiceQuery(menuItems, segment);
@@ -325,11 +421,15 @@ function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
     }
 
     const quantity = Math.max(1, Math.min(12, parseVoiceQuantity(segment)));
+    const notes = extractVoiceNotes(segment);
     const existing = merged.get(matchedItem.id);
     if (existing) {
       existing.quantity += quantity;
+      if (!existing.notes && notes) {
+        existing.notes = notes;
+      }
     } else {
-      merged.set(matchedItem.id, { item: matchedItem, quantity });
+      merged.set(matchedItem.id, { item: matchedItem, quantity, notes });
     }
   }
 
@@ -338,7 +438,7 @@ function extractMultipleAddIntents(transcript: string, menuItems: MenuItem[]) {
 
 function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[]) {
   const normalized = normalizeVoiceText(transcript);
-  if (!/\b(quita|quitar|elimina|borra|cancela|sin)\b/.test(normalized)) {
+  if (!/\b(quita|quitar|elimina|borra|cancela)\b/.test(normalized)) {
     return [];
   }
 
@@ -347,7 +447,7 @@ function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[])
     .map((segment) => segment.trim())
     .filter(Boolean);
 
-  const merged = new Map<string, { item: MenuItem; quantity: number }>();
+  const merged = new Map<string, { item: MenuItem; quantity: number; notes?: string }>();
   const orderItems = dedupeMenuItems(cartItems.map((cartItem) => cartItem.menuItem));
 
   for (const segment of segments) {
@@ -357,11 +457,15 @@ function extractMultipleRemoveIntents(transcript: string, cartItems: CartItem[])
     }
 
     const quantity = Math.max(1, Math.min(12, parseVoiceQuantity(segment)));
+    const notes = extractVoiceNotes(segment);
     const existing = merged.get(matchedItem.id);
     if (existing) {
       existing.quantity += quantity;
+      if (!existing.notes && notes) {
+        existing.notes = notes;
+      }
     } else {
-      merged.set(matchedItem.id, { item: matchedItem, quantity });
+      merged.set(matchedItem.id, { item: matchedItem, quantity, notes });
     }
   }
 
@@ -459,7 +563,7 @@ export function parseLocalVoiceIntent(
 
   const wantsPendingConfirmation = hasPendingConfirmation && isExplicitFinalConfirmation(transcript);
 
-  const wantsRemove = /\b(quita|quitar|quita una|elimina|borra|cancela|sin)\b/.test(normalized);
+  const wantsRemove = /\b(quita|quitar|quita una|elimina|borra|cancela)\b/.test(normalized);
   if (wantsRemove) {
     const removeAllExceptIntent = extractRemoveAllExceptIntent(transcript, cartItems);
     if (removeAllExceptIntent) {
@@ -476,7 +580,12 @@ export function parseLocalVoiceIntent(
 
     const item = resolveMenuItemFromVoiceQuery(dedupeMenuItems(cartItems.map((cartItem) => cartItem.menuItem)), transcript);
     if (item && !protectedIds.has(item.id)) {
-      return { type: 'remove', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
+      return {
+        type: 'remove',
+        item,
+        quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))),
+        notes: extractVoiceNotes(transcript),
+      };
     }
 
     return { type: 'unknown' };
@@ -491,7 +600,12 @@ export function parseLocalVoiceIntent(
 
     const item = resolveMenuItemFromVoiceQuery(menuItems, transcript);
     if (item) {
-      return { type: 'add', item, quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))) };
+      return {
+        type: 'add',
+        item,
+        quantity: Math.max(1, Math.min(12, parseVoiceQuantity(transcript))),
+        notes: extractVoiceNotes(transcript),
+      };
     }
   }
 
@@ -956,14 +1070,14 @@ export function useLiveSession({
   const addToOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'addToOrder',
-      description: 'Anade un plato nuevo al pedido actual usando preferiblemente el menuItemId exacto de la carta.',
+      description: 'Anade un plato nuevo al pedido actual usando preferiblemente el menuItemId exacto de la carta. Incluye siempre quantity y usa notes para observaciones como sin hielo, sin cebolla, con salsa aparte o para compartir.',
       parameters: {
         type: Type.OBJECT,
         properties: {
           menuItemId: { type: Type.STRING, description: 'ID exacto del plato en la carta. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato' },
-          quantity: { type: Type.NUMBER, description: 'Cantidad solicitada' },
-          notes: { type: Type.STRING, description: 'Observaciones' },
+          quantity: { type: Type.NUMBER, description: 'Cantidad solicitada. Obligatoria cuando el cliente indique una cantidad explicita.' },
+          notes: { type: Type.STRING, description: 'Observaciones del cliente: por ejemplo sin hielo, sin cebolla, con salsa aparte o para compartir.' },
         },
         required: ['quantity'],
       },
@@ -974,7 +1088,7 @@ export function useLiveSession({
   const removeFromOrderTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'removeFromOrder',
-      description: 'Quita una o varias unidades del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido.',
+      description: 'Quita una o varias unidades del plato indicado del pedido actual usando preferiblemente el menuItemId exacto del pedido. Usa notes si la correccion afecta a una linea concreta con observaciones.',
       parameters: {
         type: Type.OBJECT,
         properties: {
@@ -1047,10 +1161,22 @@ export function useLiveSession({
         result = { success: true, message: `${count} comensales actualizados.` };
       } else if (name === 'addToOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
-        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
-        const notes = typeof args.notes === 'string' ? args.notes : undefined;
+        const requestedQuantity = Number(args.quantity);
+        const hasExplicitQuantity = Number.isFinite(requestedQuantity) && requestedQuantity > 0;
+        const transcript = latestInputTranscriptRef.current.trim();
+        const derivedTranscriptAdds = transcript ? extractMultipleAddIntents(transcript, menuRef.current) : [];
+        const derivedTranscriptAdd = derivedTranscriptAdds.length === 1 ? derivedTranscriptAdds[0] : null;
         const match = findMenuItemMatch(menuRef.current, args);
         const item = match.item;
+        const quantity =
+          item && !hasExplicitQuantity && derivedTranscriptAdd?.item.id === item.id
+            ? derivedTranscriptAdd.quantity
+            : Math.max(1, Math.min(12, hasExplicitQuantity ? requestedQuantity : 1));
+        const notesFromArgs = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
+        const notes =
+          notesFromArgs ||
+          (item && derivedTranscriptAdd?.item.id === item.id ? derivedTranscriptAdd.notes : undefined) ||
+          (transcript ? extractVoiceNotes(transcript) : undefined);
         pendingAddFallbackRef.current = {
           itemName: typeof args.itemName === 'string' ? args.itemName : undefined,
           menuItemId: typeof args.menuItemId === 'string' ? args.menuItemId : undefined,
@@ -1080,13 +1206,27 @@ export function useLiveSession({
         }
       } else if (name === 'removeFromOrder') {
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
-        const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
-        const notes = typeof args.notes === 'string' ? args.notes : undefined;
+        const requestedQuantity = Number(args.quantity);
+        const hasExplicitQuantity = Number.isFinite(requestedQuantity) && requestedQuantity > 0;
+        const transcript = latestInputTranscriptRef.current.trim();
+        const currentOrderItems = cartItemsRef.current.map((cartItem) => cartItem.menuItem);
+        const derivedTranscriptRemovals = transcript ? extractMultipleRemoveIntents(transcript, cartItemsRef.current) : [];
+        const notesFromArgs = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
         const match = findMenuItemMatch(
-          cartItemsRef.current.map((cartItem) => cartItem.menuItem),
+          currentOrderItems,
           args,
         );
         const item = match.item;
+        const derivedTranscriptRemoval =
+          item && derivedTranscriptRemovals.find((entry) => entry.item.id === item.id) ? derivedTranscriptRemovals.find((entry) => entry.item.id === item.id)! : null;
+        const quantity =
+          item && !hasExplicitQuantity && derivedTranscriptRemoval
+            ? derivedTranscriptRemoval.quantity
+            : Math.max(1, Math.min(12, hasExplicitQuantity ? requestedQuantity : 1));
+        const notes =
+          notesFromArgs ||
+          (item && derivedTranscriptRemoval ? derivedTranscriptRemoval.notes : undefined) ||
+          (transcript ? extractVoiceNotes(transcript) : undefined);
 
         if (!item) {
           const suggestions = match.candidates.slice(0, 3).map((candidate) => candidate.name).join(', ');
@@ -1408,7 +1548,7 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      applyCartAdd(intent.item, intent.quantity);
+      applyCartAdd(intent.item, intent.quantity, intent.notes);
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
       addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
@@ -1426,7 +1566,7 @@ export function useLiveSession({
 
       currentTurnLocallyHandledRef.current = true;
       intent.items.forEach((entry) => {
-        applyCartAdd(entry.item, entry.quantity);
+        applyCartAdd(entry.item, entry.quantity, entry.notes);
       });
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
@@ -1447,7 +1587,7 @@ export function useLiveSession({
       }
 
       currentTurnLocallyHandledRef.current = true;
-      const removal = applyCartRemoval(intent.item, intent.quantity);
+      const removal = applyCartRemoval(intent.item, intent.quantity, intent.notes);
       if (removal.requiresClarification && removal.matchingLines?.length) {
         const clarificationMessage = buildRemoveClarificationMessage(intent.item.name, removal.matchingLines);
         addLog('error', clarificationMessage);
