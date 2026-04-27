@@ -82,7 +82,8 @@ const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
 const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
 const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
 const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
-const LOCAL_FALLBACK_SPEECH_DELAY_MS = 900;
+const FAST_LOCAL_INTENT_DELAY_MS = 180;
+const LOCAL_FALLBACK_SPEECH_DELAY_MS = 120;
 const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_400;
 
 const VOICE_STOP_WORDS = new Set([
@@ -779,6 +780,7 @@ export function useLiveSession({
   const reconnectTimeoutRef = useRef<number | null>(null);
   const fallbackSpeechTimeoutRef = useRef<number | null>(null);
   const assistantSpeechTimeoutRef = useRef<number | null>(null);
+  const fastLocalIntentTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const playedAudioChunksRef = useRef<Set<string>>(new Set());
   const currentTurnHadAudioOutputRef = useRef(false);
@@ -885,6 +887,13 @@ export function useLiveSession({
     if (assistantSpeechTimeoutRef.current) {
       window.clearTimeout(assistantSpeechTimeoutRef.current);
       assistantSpeechTimeoutRef.current = null;
+    }
+  }, []);
+
+  const clearFastLocalIntentTimeout = useCallback(() => {
+    if (fastLocalIntentTimeoutRef.current) {
+      window.clearTimeout(fastLocalIntentTimeoutRef.current);
+      fastLocalIntentTimeoutRef.current = null;
     }
   }, []);
 
@@ -1035,6 +1044,7 @@ export function useLiveSession({
   const resetAssistantTurnTracking = useCallback(() => {
     clearFallbackSpeechTimeout();
     clearAssistantSpeechTimeout();
+    clearFastLocalIntentTimeout();
     playedAudioChunksRef.current.clear();
     currentTurnHadAudioOutputRef.current = false;
     lastSpokenOutputSignatureRef.current = '';
@@ -1054,7 +1064,7 @@ export function useLiveSession({
     pendingConfirmationPromptRef.current = '';
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
-  }, [clearAssistantSpeechTimeout, clearFallbackSpeechTimeout]);
+  }, [clearAssistantSpeechTimeout, clearFallbackSpeechTimeout, clearFastLocalIntentTimeout]);
 
   const cancelLocalSpeech = useCallback(() => {
     localSpeechUtteranceRef.current = null;
@@ -1135,6 +1145,7 @@ export function useLiveSession({
       clearReconnectTimeout();
       clearFallbackSpeechTimeout();
       clearAssistantSpeechTimeout();
+      clearFastLocalIntentTimeout();
       shouldStreamAudioRef.current = false;
       pendingPressRef.current = false;
       sessionPromiseRef.current = null;
@@ -1166,7 +1177,7 @@ export function useLiveSession({
       setStatusSafe(nextStatus);
       setPreferredAudioSession('auto');
     },
-    [cancelLocalSpeech, clearAssistantSpeechTimeout, clearCaptureTeardownTimeout, clearFallbackSpeechTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
+    [cancelLocalSpeech, clearAssistantSpeechTimeout, clearCaptureTeardownTimeout, clearFallbackSpeechTimeout, clearFastLocalIntentTimeout, clearRecordingTimeout, clearReconnectTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, resetPendingOrderConfirmation, setPreferredAudioSession, setStatusSafe, setTurnStateSafe, stopPlayback, teardownAudioCapture],
   );
 
   const disconnect = useCallback(() => {
@@ -1578,6 +1589,58 @@ export function useLiveSession({
     );
   }, [clearTurnRecoveryTimeout, scheduleTurnRecovery, turnState]);
 
+  const speakWithBrowserVoice = useCallback(
+    (text: string) => {
+      const message = text.trim();
+      if (typeof window === 'undefined' || !('speechSynthesis' in window) || !message) {
+        return false;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(message);
+        const voices = window.speechSynthesis.getVoices();
+        const spanishVoice =
+          voices.find((voice) => voice.lang.toLowerCase() === 'es-es') ??
+          voices.find((voice) => voice.lang.toLowerCase().startsWith('es'));
+
+        if (spanishVoice) {
+          utterance.voice = spanishVoice;
+        }
+
+        utterance.lang = spanishVoice?.lang || 'es-ES';
+        utterance.rate = 1.04;
+        utterance.pitch = 1;
+        utterance.volume = 1;
+
+        localSpeechUtteranceRef.current = utterance;
+        setTurnStateSafe('speaking');
+        scheduleTurnRecovery('voz local');
+
+        utterance.onend = () => {
+          if (localSpeechUtteranceRef.current === utterance) {
+            localSpeechUtteranceRef.current = null;
+          }
+          finalizeTurnIfReady();
+        };
+
+        utterance.onerror = () => {
+          if (localSpeechUtteranceRef.current === utterance) {
+            localSpeechUtteranceRef.current = null;
+          }
+          finalizeTurnIfReady();
+        };
+
+        window.speechSynthesis.speak(utterance);
+        return true;
+      } catch {
+        localSpeechUtteranceRef.current = null;
+        return false;
+      }
+    },
+    [finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
+  );
+
   const speakWithConsistentVoice = useCallback(
     async (text: string) => {
       const message = text.trim();
@@ -1590,6 +1653,10 @@ export function useLiveSession({
         return false;
       }
       lastSpokenOutputSignatureRef.current = signature;
+
+      if (speakWithBrowserVoice(message)) {
+        return true;
+      }
 
       const speechToken = synthesizedSpeechTokenRef.current + 1;
       synthesizedSpeechTokenRef.current = speechToken;
@@ -1650,7 +1717,7 @@ export function useLiveSession({
         return false;
       }
     },
-    [addLog, branding.assistantName, ensurePlaybackPipeline, finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
+    [addLog, branding.assistantName, ensurePlaybackPipeline, finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe, speakWithBrowserVoice],
   );
 
   const speakFallbackMessage = useCallback(
@@ -1910,6 +1977,25 @@ export function useLiveSession({
     return false;
   }, [addLog, applyCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation]);
 
+  const scheduleFastLocalIntent = useCallback(() => {
+    if (
+      currentTurnLocallyHandledRef.current ||
+      currentTurnHadToolCallRef.current ||
+      currentTurnHadAudioOutputRef.current ||
+      currentTurnHadAssistantOutputRef.current ||
+      turnStateRef.current !== 'processing'
+    ) {
+      return;
+    }
+
+    clearFastLocalIntentTimeout();
+    fastLocalIntentTimeoutRef.current = window.setTimeout(() => {
+      fastLocalIntentTimeoutRef.current = null;
+
+      void tryHandleLocalIntent();
+    }, FAST_LOCAL_INTENT_DELAY_MS);
+  }, [clearFastLocalIntentTimeout, tryHandleLocalIntent]);
+
   const cancelCurrentResponse = useCallback(() => {
     stopPlayback();
     if (turnStateRef.current === 'speaking' || turnStateRef.current === 'processing') {
@@ -2030,7 +2116,7 @@ export function useLiveSession({
               ?.map((part) => ('text' in part ? part.text : undefined))
               .filter((part): part is string => Boolean(part));
 
-            if (textParts && textParts.length > 0) {
+            if (!currentTurnLocallyHandledRef.current && textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
               const assistantSignature = normalizeVoiceText(assistantText);
               if (assistantText && assistantSignature && assistantSignature !== lastAssistantOutputSignatureRef.current) {
@@ -2047,11 +2133,12 @@ export function useLiveSession({
             if (inputTranscript) {
               latestInputTranscriptRef.current = inputTranscript;
               addLog('system', `Tu voz: ${inputTranscript}`);
+              scheduleFastLocalIntent();
             }
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
             const outputSignature = outputTranscript ? normalizeVoiceText(outputTranscript) : '';
-            if (outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
+            if (!currentTurnLocallyHandledRef.current && outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
               lastAssistantOutputSignatureRef.current = outputSignature;
               lastOutputTranscriptRef.current = outputTranscript;
               lastAssistantTextRef.current = outputTranscript;
@@ -2072,12 +2159,19 @@ export function useLiveSession({
                 processedToolCallIdsRef.current.add(functionCall.id);
                 const args = (functionCall.args as Record<string, unknown>) ?? {};
                 const toolCallSignature = buildToolCallSignature(functionCall.name, args);
-                const cachedResult = processedToolCallSignaturesRef.current.get(toolCallSignature);
-                const result = cachedResult ?? (await runTool(functionCall.name, args));
-                if (!cachedResult) {
+                let result: ToolResult;
+
+                if (currentTurnLocallyHandledRef.current) {
+                  result = { success: true, message: 'Turno ya resuelto localmente.' };
                   processedToolCallSignaturesRef.current.set(toolCallSignature, result);
                 } else {
-                  addLog('system', `Tool call duplicada ignorada: ${functionCall.name}.`);
+                  const cachedResult = processedToolCallSignaturesRef.current.get(toolCallSignature);
+                  result = cachedResult ?? (await runTool(functionCall.name, args));
+                  if (!cachedResult) {
+                    processedToolCallSignaturesRef.current.set(toolCallSignature, result);
+                  } else {
+                    addLog('system', `Tool call duplicada ignorada: ${functionCall.name}.`);
+                  }
                 }
                 responses.push({
                   id: functionCall.id,
@@ -2094,7 +2188,7 @@ export function useLiveSession({
             const audioParts = message.serverContent?.modelTurn?.parts?.filter(
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
-            if (audioParts && audioParts.length > 0 && audioContextRef.current) {
+            if (!currentTurnLocallyHandledRef.current && audioParts && audioParts.length > 0 && audioContextRef.current) {
               clearAssistantSpeechTimeout();
               clearFallbackSpeechTimeout();
               cancelSynthesizedSpeech();
@@ -2255,6 +2349,7 @@ export function useLiveSession({
     stopPlayback,
     cancelLocalSpeech,
     scheduleAssistantTranscriptSpeech,
+    scheduleFastLocalIntent,
     systemInstruction,
   ]);
 
