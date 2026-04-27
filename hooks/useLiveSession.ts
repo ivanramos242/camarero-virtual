@@ -12,7 +12,7 @@ import type {
   SessionTokenResponse,
   VoiceTurnState,
 } from '../types';
-import { fetchVoiceDiagnostics } from '../utils/api';
+import { fetchVoiceDiagnostics, synthesizeKitchenAnnouncementOnApi as synthesizeVoiceFallbackOnApi } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
 import { buildCartSignature, summarizeCartItems, type RemoveCartUnitsBatchResult, type RemoveCartUnitsTarget } from '../utils/cartState';
 import { resolveMenuItemMatch } from '../utils/voiceMatching';
@@ -46,6 +46,29 @@ interface ToolResult {
   confirmationPending?: boolean;
 }
 
+function stableToolArgs(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableToolArgs);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nestedValue]) => [key, stableToolArgs(nestedValue)]),
+    );
+  }
+
+  return value;
+}
+
+export function buildToolCallSignature(name: string, args: Record<string, unknown>) {
+  return JSON.stringify({
+    name,
+    args: stableToolArgs(args),
+  });
+}
+
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const DEFAULT_PLAYBACK_GAIN = 2.15;
@@ -59,8 +82,8 @@ const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
 const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
 const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
 const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
-const LOCAL_FALLBACK_SPEECH_DELAY_MS = 450;
-const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_200;
+const LOCAL_FALLBACK_SPEECH_DELAY_MS = 900;
+const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_400;
 
 const VOICE_STOP_WORDS = new Set([
   'el',
@@ -227,7 +250,7 @@ function findMenuItem(items: MenuItem[], args: Record<string, unknown>, nameKey:
 
 function buildOrderConfirmationPrompt(items: CartItem[]) {
   if (items.length === 0) {
-    return 'No veo ningun plato en el pedido todavia.';
+    return 'No veo ningún plato en el pedido todavía.';
   }
 
   return `Resumen del pedido: ${summarizeCartItems(items)}. Si está todo correcto, di confirmar pedido para enviarlo a cocina.`;
@@ -238,7 +261,7 @@ function buildRemoveClarificationMessage(itemName: string, matchingLines: CartIt
     .map((line) => `${line.quantity}x ${line.menuItem.name}${line.notes ? ` (${line.notes})` : ''}`)
     .join(', ');
 
-  return `Tengo varias lineas para ${itemName}: ${variants}. Dime cual quieres quitar exactamente.`;
+  return `Tengo varias líneas para ${itemName}: ${variants}. Dime cuál quieres quitar exactamente.`;
 }
 
 function isExplicitFinalConfirmation(transcript: string) {
@@ -767,6 +790,7 @@ export function useLiveSession({
   const latestInputTranscriptRef = useRef('');
   const currentTurnHadToolCallRef = useRef(false);
   const processedToolCallIdsRef = useRef<Set<string>>(new Set());
+  const processedToolCallSignaturesRef = useRef<Map<string, ToolResult>>(new Map());
   const currentTurnLocallyHandledRef = useRef(false);
   const currentTurnAddedToOrderRef = useRef(false);
   const currentTurnRemovedFromOrderRef = useRef(false);
@@ -778,6 +802,8 @@ export function useLiveSession({
   const pendingConfirmationPromptRef = useRef('');
   const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
   const lastAssistantOutputSignatureRef = useRef('');
+  const synthesizedSpeechSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const synthesizedSpeechTokenRef = useRef(0);
 
   const cartItemsRef = useRef(cartItems);
   const dinersCountRef = useRef(dinersCount);
@@ -936,11 +962,11 @@ export function useLiveSession({
   const attemptConfirmCurrentOrder = useCallback(async () => {
     if (cartItemsRef.current.length === 0) {
       resetPendingOrderConfirmation();
-      addLog('error', 'No puedes confirmar un pedido vacio.');
+      addLog('error', 'No puedes confirmar un pedido vacío.');
       return {
         success: false,
         confirmationPending: false,
-        error: 'No puedes confirmar un pedido vacio.',
+        error: 'No puedes confirmar un pedido vacío.',
       } satisfies ToolResult & { confirmationPending?: boolean };
     }
 
@@ -951,11 +977,11 @@ export function useLiveSession({
       pendingOrderConfirmationSignatureRef.current = currentCartSignature;
       confirmationPendingActivatedThisTurnRef.current = true;
       pendingConfirmationPromptRef.current = confirmationPrompt;
-      addLog('system', 'Confirmacion bloqueada: falta confirmacion final del cliente.');
+      addLog('system', 'Confirmación bloqueada: falta confirmación final del cliente.');
       return {
         success: false,
         confirmationPending: true,
-        error: `${confirmationPrompt} No lo envies todavia: primero pide confirmacion explicita al cliente.`,
+        error: `${confirmationPrompt} No lo envíes todavía: primero pide confirmación explícita al cliente.`,
       } satisfies ToolResult & { confirmationPending?: boolean };
     }
 
@@ -966,12 +992,12 @@ export function useLiveSession({
     if (success) {
       cartItemsRef.current = [];
     }
-    addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmacion por voz ha fallado.');
+    addLog(success ? 'system' : 'error', success ? 'Pedido confirmado desde voz.' : 'La confirmación por voz ha fallado.');
     return success
       ? ({
           success: true,
           confirmationPending: false,
-          message: `Pedido confirmado y enviado con ${lineCount} lineas.`,
+          message: `Pedido confirmado y enviado con ${lineCount} líneas.`,
         } satisfies ToolResult & { confirmationPending?: boolean })
       : ({
           success: false,
@@ -980,13 +1006,31 @@ export function useLiveSession({
         } satisfies ToolResult & { confirmationPending?: boolean });
   }, [addLog, onConfirmOrder, resetPendingOrderConfirmation]);
 
+  const cancelSynthesizedSpeech = useCallback(() => {
+    synthesizedSpeechTokenRef.current += 1;
+
+    const source = synthesizedSpeechSourceRef.current;
+    synthesizedSpeechSourceRef.current = null;
+    if (!source) {
+      return;
+    }
+
+    sourcesRef.current.delete(source);
+    try {
+      source.stop();
+    } catch {
+      // El nodo puede haber terminado ya; no hay nada que limpiar.
+    }
+  }, []);
+
   const stopPlayback = useCallback(() => {
+    cancelSynthesizedSpeech();
     sourcesRef.current.forEach((source) => source.stop());
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
     modelTurnCompleteRef.current = false;
     playedAudioChunksRef.current.clear();
-  }, []);
+  }, [cancelSynthesizedSpeech]);
 
   const resetAssistantTurnTracking = useCallback(() => {
     clearFallbackSpeechTimeout();
@@ -1000,6 +1044,7 @@ export function useLiveSession({
     latestInputTranscriptRef.current = '';
     currentTurnHadToolCallRef.current = false;
     processedToolCallIdsRef.current.clear();
+    processedToolCallSignaturesRef.current.clear();
     currentTurnLocallyHandledRef.current = false;
     currentTurnAddedToOrderRef.current = false;
     currentTurnRemovedFromOrderRef.current = false;
@@ -1140,12 +1185,12 @@ export function useLiveSession({
 
     try {
       const diagnostics = await fetchVoiceDiagnostics();
-      addLog(diagnostics.tokenCheck.ok ? 'system' : 'error', `Diagnostico token: ${diagnostics.tokenCheck.message}`);
-      addLog(diagnostics.liveCheck.ok ? 'system' : 'error', `Diagnostico Live: ${diagnostics.liveCheck.message}`);
+      addLog(diagnostics.tokenCheck.ok ? 'system' : 'error', `Diagnóstico token: ${diagnostics.tokenCheck.message}`);
+      addLog(diagnostics.liveCheck.ok ? 'system' : 'error', `Diagnóstico Live: ${diagnostics.liveCheck.message}`);
     } catch (error) {
       addLog(
         'error',
-        error instanceof Error ? `No se ha podido leer el diagnostico: ${error.message}` : 'No se ha podido leer el diagnostico de voz.',
+        error instanceof Error ? `No se ha podido leer el diagnóstico: ${error.message}` : 'No se ha podido leer el diagnóstico de voz.',
       );
     }
   }, [addLog]);
@@ -1175,11 +1220,11 @@ export function useLiveSession({
   const setDinersTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'setDiners',
-      description: 'Actualiza el numero de comensales y opcionalmente el nombre del cliente.',
+      description: 'Actualiza el número de comensales y opcionalmente el nombre del cliente.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          count: { type: Type.NUMBER, description: 'Numero de comensales' },
+          count: { type: Type.NUMBER, description: 'Número de comensales' },
           name: { type: Type.STRING, description: 'Nombre del cliente' },
         },
         required: ['count'],
@@ -1215,8 +1260,8 @@ export function useLiveSession({
         properties: {
           menuItemId: { type: Type.STRING, description: 'ID exacto del plato en el pedido actual. Prioritario si se conoce.' },
           itemName: { type: Type.STRING, description: 'Nombre del plato a corregir' },
-          quantity: { type: Type.NUMBER, description: 'Numero de unidades a quitar. Si no se indica, quita 1.' },
-          notes: { type: Type.STRING, description: 'Observaciones exactas de la linea si hay varias del mismo plato.' },
+          quantity: { type: Type.NUMBER, description: 'Número de unidades a quitar. Si no se indica, quita 1.' },
+          notes: { type: Type.STRING, description: 'Observaciones exactas de la línea si hay varias del mismo plato.' },
         },
         required: [],
       },
@@ -1243,7 +1288,7 @@ export function useLiveSession({
   const endSessionTool: FunctionDeclaration = useMemo(
     () => ({
       name: 'endSession',
-      description: 'Cierra la sesion cuando la conversacion haya terminado.',
+      description: 'Cierra la sesión cuando la conversación haya terminado.',
     }),
     [],
   );
@@ -1262,7 +1307,7 @@ export function useLiveSession({
       let result: ToolResult = { success: true };
 
       if (name === 'getMenu') {
-        result = { success: true, count: menuRef.current.length, message: 'La carta ya esta en contexto.' };
+        result = { success: true, count: menuRef.current.length, message: 'La carta ya está en contexto.' };
       } else if (name === 'getCurrentOrder') {
         result = {
           success: true,
@@ -1298,7 +1343,7 @@ export function useLiveSession({
           result = {
             success: false,
             error: suggestions
-              ? `No tengo claro que plato es "${itemName}". Quiza te refieres a: ${suggestions}.`
+              ? `No tengo claro qué plato es "${itemName}". Quizá te refieres a: ${suggestions}.`
               : `No he podido identificar el plato "${itemName}" en la carta actual.`,
           };
           addLog('error', result.error);
@@ -1307,10 +1352,10 @@ export function useLiveSession({
           resetPendingOrderConfirmation();
           currentTurnAddedToOrderRef.current = true;
           pendingAddFallbackRef.current = null;
-          addLog('system', `Anadido ${quantity}x ${item.name}.`);
+          addLog('system', `Añadido ${quantity}x ${item.name}.`);
           result = {
             success: true,
-            message: `${quantity}x ${item.name} anadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems(nextCartItems)}`,
+            message: `${quantity}x ${item.name} añadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems(nextCartItems)}`,
           };
         }
       } else if (name === 'removeFromOrder') {
@@ -1328,7 +1373,7 @@ export function useLiveSession({
           result = {
             success: false,
             error: suggestions
-              ? `No tengo claro que plato quieres quitar cuando dices "${itemName}". Quiza te refieres a: ${suggestions}.`
+              ? `No tengo claro qué plato quieres quitar cuando dices "${itemName}". Quizá te refieres a: ${suggestions}.`
               : `No he encontrado "${itemName}" dentro del pedido actual.`,
           };
           addLog('error', result.error);
@@ -1364,7 +1409,7 @@ export function useLiveSession({
       } else if (name === 'confirmOrder') {
         result = await attemptConfirmCurrentOrder();
       } else if (name === 'endSession') {
-        result = { success: true, message: 'Sesion cerrada.' };
+        result = { success: true, message: 'Sesión cerrada.' };
         pendingEndSessionRef.current = true;
       }
 
@@ -1373,13 +1418,11 @@ export function useLiveSession({
     [addLog, applyCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, disconnect, onSetDiners, resetPendingOrderConfirmation],
   );
 
-  const ensureAudioPipeline = useCallback(async () => {
+  const ensurePlaybackPipeline = useCallback(async () => {
     const AudioContextClass = getAudioContextClass();
     if (!AudioContextClass) {
       throw new Error('Este navegador no soporta audio en tiempo real.');
     }
-
-    assertMicrophoneRuntimeAvailable();
 
     if (!audioContextRef.current || audioContextRef.current.state === 'closed' || !playbackGainRef.current) {
       const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
@@ -1400,6 +1443,21 @@ export function useLiveSession({
       playbackCompressorRef.current = playbackCompressor;
       await playbackContext.resume();
     }
+
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+  }, [getAudioContextClass]);
+
+  const ensureAudioPipeline = useCallback(async () => {
+    const AudioContextClass = getAudioContextClass();
+    if (!AudioContextClass) {
+      throw new Error('Este navegador no soporta audio en tiempo real.');
+    }
+
+    assertMicrophoneRuntimeAvailable();
+
+    await ensurePlaybackPipeline();
 
     if (mediaStreamRef.current && inputProcessorRef.current && inputContextRef.current?.state !== 'closed') {
       return;
@@ -1446,7 +1504,7 @@ export function useLiveSession({
     silentSink.connect(captureContext.destination);
 
     await captureContext.resume();
-  }, [getAudioContextClass]);
+  }, [ensurePlaybackPipeline, getAudioContextClass]);
 
   const finalizeTurnIfReady = useCallback(() => {
     if (sourcesRef.current.size > 0 || localSpeechUtteranceRef.current) {
@@ -1520,10 +1578,10 @@ export function useLiveSession({
     );
   }, [clearTurnRecoveryTimeout, scheduleTurnRecovery, turnState]);
 
-  const speakWithLocalVoice = useCallback(
-    (text: string) => {
+  const speakWithConsistentVoice = useCallback(
+    async (text: string) => {
       const message = text.trim();
-      if (!message || typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      if (!message) {
         return false;
       }
 
@@ -1533,56 +1591,66 @@ export function useLiveSession({
       }
       lastSpokenOutputSignatureRef.current = signature;
 
-      const utterance = new SpeechSynthesisUtterance(message);
-      const voices = window.speechSynthesis.getVoices();
-      const spanishVoice =
-        voices.find((voice) => voice.lang.toLowerCase().startsWith('es-es')) ??
-        voices.find((voice) => voice.lang.toLowerCase().startsWith('es')) ??
-        null;
+      const speechToken = synthesizedSpeechTokenRef.current + 1;
+      synthesizedSpeechTokenRef.current = speechToken;
 
-      if (spanishVoice) {
-        utterance.voice = spanishVoice;
-        utterance.lang = spanishVoice.lang;
-      } else {
-        utterance.lang = 'es-ES';
+      try {
+        await ensurePlaybackPipeline();
+        const audioContext = audioContextRef.current;
+        if (!audioContext) {
+          lastSpokenOutputSignatureRef.current = '';
+          return false;
+        }
+
+        const { audioBase64, sampleRate } = await synthesizeVoiceFallbackOnApi(message);
+        if (speechToken !== synthesizedSpeechTokenRef.current || currentTurnHadAudioOutputRef.current) {
+          return false;
+        }
+
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+
+        const audioBuffer = await decodeAudioData(base64ToUint8Array(audioBase64), audioContext, sampleRate);
+        if (speechToken !== synthesizedSpeechTokenRef.current || currentTurnHadAudioOutputRef.current) {
+          return false;
+        }
+
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(playbackGainRef.current ?? audioContext.destination);
+        synthesizedSpeechSourceRef.current = source;
+        sourcesRef.current.add(source);
+
+        nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
+        source.start(nextStartTimeRef.current);
+        nextStartTimeRef.current += audioBuffer.duration;
+        setTurnStateSafe('speaking');
+        scheduleTurnRecovery('voz sintetizada');
+
+        source.onended = () => {
+          sourcesRef.current.delete(source);
+          if (synthesizedSpeechSourceRef.current === source) {
+            synthesizedSpeechSourceRef.current = null;
+          }
+          if (sourcesRef.current.size === 0) {
+            finalizeTurnIfReady();
+          }
+        };
+
+        return true;
+      } catch (error) {
+        lastSpokenOutputSignatureRef.current = '';
+        addLog(
+          'error',
+          error instanceof Error
+            ? `No se pudo sintetizar la respuesta de ${branding.assistantName}: ${error.message}`
+            : `No se pudo sintetizar la respuesta de ${branding.assistantName}.`,
+        );
+        return false;
       }
-
-      utterance.rate = 1;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      localSpeechUtteranceRef.current = utterance;
-      setTurnStateSafe('speaking');
-      scheduleTurnRecovery('voz local');
-
-      utterance.onstart = () => {
-        scheduleTurnRecovery('voz local');
-      };
-
-      utterance.onboundary = () => {
-        scheduleTurnRecovery('voz local');
-      };
-
-      utterance.onend = () => {
-        if (localSpeechUtteranceRef.current === utterance) {
-          localSpeechUtteranceRef.current = null;
-        }
-        if (sourcesRef.current.size === 0) {
-          finalizeTurnIfReady();
-        }
-      };
-
-      utterance.onerror = () => {
-        if (localSpeechUtteranceRef.current === utterance) {
-          localSpeechUtteranceRef.current = null;
-        }
-        finalizeTurnIfReady();
-      };
-
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utterance);
-      return true;
     },
-    [finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
+    [addLog, branding.assistantName, ensurePlaybackPipeline, finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
   );
 
   const speakFallbackMessage = useCallback(
@@ -1592,9 +1660,9 @@ export function useLiveSession({
       lastOutputTranscriptRef.current = message;
       setLastAssistantMessage(message);
       addLog('assistant', message);
-      return speakWithLocalVoice(message);
+      return speakWithConsistentVoice(message);
     },
-    [addLog, speakWithLocalVoice],
+    [addLog, speakWithConsistentVoice],
   );
 
   const shouldUseLocalFallbackSpeech = useCallback(() => {
@@ -1613,15 +1681,17 @@ export function useLiveSession({
       fallbackSpeechTimeoutRef.current = window.setTimeout(() => {
         fallbackSpeechTimeoutRef.current = null;
 
-        if (shouldUseLocalFallbackSpeech()) {
-          const spokeFallback = speakFallbackMessage(fallbackMessage);
-          if (!spokeFallback) {
-            finalizeTurnIfReady();
+        void (async () => {
+          if (shouldUseLocalFallbackSpeech()) {
+            const spokeFallback = await speakFallbackMessage(fallbackMessage);
+            if (!spokeFallback) {
+              finalizeTurnIfReady();
+            }
+            return;
           }
-          return;
-        }
 
-        finalizeTurnIfReady();
+          finalizeTurnIfReady();
+        })();
       }, LOCAL_FALLBACK_SPEECH_DELAY_MS);
     },
     [clearFallbackSpeechTimeout, finalizeTurnIfReady, shouldUseLocalFallbackSpeech, speakFallbackMessage],
@@ -1638,20 +1708,22 @@ export function useLiveSession({
       assistantSpeechTimeoutRef.current = window.setTimeout(() => {
         assistantSpeechTimeoutRef.current = null;
 
-        if (currentTurnHadAudioOutputRef.current || localSpeechUtteranceRef.current || !lastAssistantTextRef.current.trim()) {
-          finalizeTurnIfReady();
-          return;
-        }
+        void (async () => {
+          if (currentTurnHadAudioOutputRef.current || localSpeechUtteranceRef.current || !lastAssistantTextRef.current.trim()) {
+            finalizeTurnIfReady();
+            return;
+          }
 
-        const spoke = speakWithLocalVoice(lastAssistantTextRef.current);
-        if (!spoke) {
-          finalizeTurnIfReady();
-        }
+          const spoke = await speakWithConsistentVoice(lastAssistantTextRef.current);
+          if (!spoke) {
+            finalizeTurnIfReady();
+          }
+        })();
       }, ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS);
 
       return true;
     },
-    [clearAssistantSpeechTimeout, finalizeTurnIfReady, speakWithLocalVoice],
+    [clearAssistantSpeechTimeout, finalizeTurnIfReady, speakWithConsistentVoice],
   );
 
   const tryHandlePendingAddFallback = useCallback(() => {
@@ -1674,7 +1746,7 @@ export function useLiveSession({
     pendingAddFallbackRef.current = null;
     applyCartAdd(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
     resetPendingOrderConfirmation();
-    addLog('system', `Fallback silencioso desde tool call: anadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
+    addLog('system', `Fallback silencioso desde tool call: añadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
     concludeHandledTurn(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
     return true;
   }, [addLog, applyCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
@@ -1705,7 +1777,7 @@ export function useLiveSession({
       applyCartAdd(intent.item, intent.quantity, intent.notes);
       resetPendingOrderConfirmation();
       currentTurnAddedToOrderRef.current = true;
-      addLog('system', `Fallback local silencioso: anadido ${intent.quantity}x ${intent.item.name}.`);
+      addLog('system', `Fallback local silencioso: añadido ${intent.quantity}x ${intent.item.name}.`);
       concludeHandledTurn(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
       return true;
     }
@@ -1723,7 +1795,7 @@ export function useLiveSession({
       currentTurnAddedToOrderRef.current = true;
       addLog(
         'system',
-        `Fallback local silencioso: anadidos ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
+        `Fallback local silencioso: añadidos ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
       );
       concludeHandledTurn(`He añadido ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')} al pedido.`);
       return true;
@@ -1884,7 +1956,7 @@ export function useLiveSession({
         }
         setTurnStateSafe('processing');
         scheduleTurnRecovery('espera de respuesta');
-        addLog('system', 'Audio enviado por limite de tiempo.');
+        addLog('system', 'Audio enviado por límite de tiempo.');
       }
     }, MAX_RECORDING_MS);
   }, [addLog, cancelCurrentResponse, cancelLocalSpeech, clearRecordingTimeout, clearTurnRecoveryTimeout, resetAssistantTurnTracking, scheduleTurnRecovery, setPreferredAudioSession, setTurnStateSafe, teardownAudioCapture]);
@@ -1909,7 +1981,7 @@ export function useLiveSession({
 
       const token = await createSessionToken();
       if (token.provider !== 'gemini') {
-        throw new Error('El modo push-to-talk solo esta habilitado para Gemini en esta version.');
+        throw new Error('El modo push-to-talk solo está habilitado para Gemini en esta versión.');
       }
 
       await ensureAudioPipeline();
@@ -1998,7 +2070,15 @@ export function useLiveSession({
                 }
 
                 processedToolCallIdsRef.current.add(functionCall.id);
-                const result = await runTool(functionCall.name, (functionCall.args as Record<string, unknown>) ?? {});
+                const args = (functionCall.args as Record<string, unknown>) ?? {};
+                const toolCallSignature = buildToolCallSignature(functionCall.name, args);
+                const cachedResult = processedToolCallSignaturesRef.current.get(toolCallSignature);
+                const result = cachedResult ?? (await runTool(functionCall.name, args));
+                if (!cachedResult) {
+                  processedToolCallSignaturesRef.current.set(toolCallSignature, result);
+                } else {
+                  addLog('system', `Tool call duplicada ignorada: ${functionCall.name}.`);
+                }
                 responses.push({
                   id: functionCall.id,
                   name: functionCall.name,
@@ -2016,8 +2096,9 @@ export function useLiveSession({
             );
             if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               clearAssistantSpeechTimeout();
+              clearFallbackSpeechTimeout();
+              cancelSynthesizedSpeech();
               currentTurnHadAssistantOutputRef.current = true;
-              currentTurnHadAudioOutputRef.current = true;
               if (localSpeechUtteranceRef.current) {
                 cancelLocalSpeech();
               }
@@ -2046,6 +2127,7 @@ export function useLiveSession({
                   source.connect(playbackGainRef.current ?? audioContext.destination);
                   source.start(nextStartTimeRef.current);
                   nextStartTimeRef.current += audioBuffer.duration;
+                  currentTurnHadAudioOutputRef.current = true;
                   setTurnStateSafe('speaking');
                   scheduleTurnRecovery('audio remoto');
 
@@ -2107,9 +2189,9 @@ export function useLiveSession({
             }
           },
           onclose: (event) => {
-            const code = typeof event?.code === 'number' ? ` Codigo: ${event.code}.` : '';
+            const code = typeof event?.code === 'number' ? ` Código: ${event.code}.` : '';
             const reason = typeof event?.reason === 'string' && event.reason.trim() ? ` Motivo: ${event.reason}.` : '';
-            addLog('system', `La conexion de voz de Gemini se ha cerrado.${code}${reason}`);
+            addLog('system', `La conexión de voz de Gemini se ha cerrado.${code}${reason}`);
 
             if (!manualDisconnectRef.current) {
               void runVoiceDiagnostics();
@@ -2163,14 +2245,15 @@ export function useLiveSession({
     runTool,
     runVoiceDiagnostics,
     clearAssistantSpeechTimeout,
+    clearFallbackSpeechTimeout,
     clearReconnectTimeout,
+    cancelSynthesizedSpeech,
     resetSession,
     setPreferredAudioSession,
     setStatusSafe,
     setTurnStateSafe,
     stopPlayback,
     cancelLocalSpeech,
-    speakWithLocalVoice,
     scheduleAssistantTranscriptSpeech,
     systemInstruction,
   ]);

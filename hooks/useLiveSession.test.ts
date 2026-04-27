@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CartItem, MenuItem } from '../types';
-import { extractVoiceNotes, getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
+import { buildToolCallSignature, extractVoiceNotes, getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
 
 const croquetas: MenuItem = {
   id: 'croquetas-caseras',
@@ -40,7 +40,7 @@ function createCartLine(id: string, menuItem: MenuItem, quantity: number, notes?
 }
 
 describe('parseLocalVoiceIntent', () => {
-  it('amplia la ventana de recuperación cuando Ramiro aún tiene audio en cola', () => {
+  it('amplía la ventana de recuperación cuando Ramiro aún tiene audio en cola', () => {
     expect(
       getTurnRecoveryTimeoutMs({
         reason: 'audio remoto',
@@ -74,7 +74,7 @@ describe('parseLocalVoiceIntent', () => {
     expect(extractVoiceNotes('ponme una coca cola sin hielo y para compartir')).toBe('sin hielo, para compartir');
   });
 
-  it('prioriza anadir frente a confirmacion cuando la frase mezcla ambas cosas', () => {
+  it('prioriza añadir frente a confirmación cuando la frase mezcla ambas cosas', () => {
     const intent = parseLocalVoiceIntent('ponme una tarta de queso y ya estaria', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
   });
@@ -83,7 +83,7 @@ describe('parseLocalVoiceIntent', () => {
     const intent = parseLocalVoiceIntent('dos croquetas', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
     if (intent.type !== 'add') {
-      throw new Error('Se esperaba una intencion de alta por alias.');
+      throw new Error('Se esperaba una intención de alta por alias.');
     }
     expect(intent.quantity).toBe(2);
   });
@@ -92,7 +92,7 @@ describe('parseLocalVoiceIntent', () => {
     const intent = parseLocalVoiceIntent('croquetas y una tarta', [croquetas, tarta], []);
     expect(intent.type).toBe('addMany');
     if (intent.type !== 'addMany') {
-      throw new Error('Se esperaba una intencion de alta multiple.');
+      throw new Error('Se esperaba una intención de alta múltiple.');
     }
     expect(intent.items).toHaveLength(2);
   });
@@ -101,28 +101,28 @@ describe('parseLocalVoiceIntent', () => {
     const intent = parseLocalVoiceIntent('ponme dos croquetas sin gluten', [croquetas, tarta], []);
     expect(intent.type).toBe('add');
     if (intent.type !== 'add') {
-      throw new Error('Se esperaba una intencion de alta.');
+      throw new Error('Se esperaba una intención de alta.');
     }
     expect(intent.quantity).toBe(2);
     expect(intent.notes).toBe('sin gluten');
   });
 
-  it('prioriza quitar frente a confirmacion cuando la frase mezcla ambas cosas', () => {
+  it('prioriza quitar frente a confirmación cuando la frase mezcla ambas cosas', () => {
     const intent = parseLocalVoiceIntent('quita las croquetas caseras, correcto', [croquetas, tarta], [createCartLine('1', croquetas, 2)]);
     expect(intent.type).toBe('remove');
   });
 
-  it('no permite que la misma frase confirme justo despues de armar la confirmacion pendiente', () => {
+  it('no permite que la misma frase confirme justo después de armar la confirmación pendiente', () => {
     const intent = parseLocalVoiceIntent('confirma pedido', [croquetas, tarta], [createCartLine('1', croquetas, 2)], true, true);
     expect(intent.type).toBe('unknown');
   });
 
-  it('si confirma cuando la confirmacion pendiente viene de un turno anterior', () => {
+  it('sí confirma cuando la confirmación pendiente viene de un turno anterior', () => {
     const intent = parseLocalVoiceIntent('si, confirma pedido', [croquetas, tarta], [createCartLine('1', croquetas, 2)], true, false);
     expect(intent.type).toBe('confirm');
   });
 
-  it('detecta el plato aunque exista repetido en varias lineas del pedido', () => {
+  it('detecta el plato aunque exista repetido en varias líneas del pedido', () => {
     const intent = parseLocalVoiceIntent(
       'quita una croqueta',
       [croquetas, tarta],
@@ -133,5 +133,11 @@ describe('parseLocalVoiceIntent', () => {
     );
 
     expect(intent.type).toBe('remove');
+  });
+
+  it('genera la misma firma para tool calls equivalentes aunque cambie el orden de argumentos', () => {
+    expect(buildToolCallSignature('addToOrder', { quantity: 1, itemName: 'Croquetas' })).toBe(
+      buildToolCallSignature('addToOrder', { itemName: 'Croquetas', quantity: 1 }),
+    );
   });
 });
