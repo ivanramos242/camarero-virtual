@@ -1169,6 +1169,7 @@ function DiningPage({ branding, configError, menu, menuError, menuLoading, refre
       setIsVoiceModalOpen(true);
     } catch {
       setIsVoiceModalOpen(false);
+      voiceSession.disconnect();
     } finally {
       setIsPreparingVoice(false);
     }

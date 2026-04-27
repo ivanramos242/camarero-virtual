@@ -50,6 +50,7 @@ const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const DEFAULT_PLAYBACK_GAIN = 2.15;
 const APPLE_MOBILE_PLAYBACK_GAIN = 2.8;
+const ANDROID_CHROME_PLAYBACK_GAIN = 2.35;
 const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
@@ -280,12 +281,32 @@ function isMobileBrowser() {
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 }
 
+function isAndroidBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /android/i.test(navigator.userAgent);
+}
+
 function isAppleMobileBrowser() {
   if (typeof navigator === 'undefined') {
     return false;
   }
 
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isChromeLikeBrowser() {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+
+  return /chrome|chromium|crios|edg|edgios/i.test(navigator.userAgent) && !/opr\//i.test(navigator.userAgent);
+}
+
+function isAndroidChromeBrowser() {
+  return isAndroidBrowser() && isChromeLikeBrowser();
 }
 
 function isSafariBrowser() {
@@ -301,6 +322,41 @@ function shouldKeepCaptureWarm() {
   return isMobileBrowser() || isSafariBrowser();
 }
 
+function shouldReleaseCaptureAfterTurn() {
+  return isAppleMobileBrowser() || isSafariBrowser();
+}
+
+function isLocalhost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function assertMicrophoneRuntimeAvailable() {
+  if (typeof window !== 'undefined' && window.isSecureContext === false && !isLocalhost(window.location.hostname)) {
+    throw new Error(
+      'Chrome en Android bloquea el micrófono si la web se abre por HTTP desde una IP local. Abre la app con HTTPS o desde el dominio publicado.',
+    );
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Este dispositivo no permite acceder al micrófono.');
+  }
+}
+
+function getMicrophoneConstraints(): MediaStreamConstraints {
+  return {
+    audio: {
+      channelCount: { ideal: 1 },
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
+    },
+  };
+}
+
+function hasLiveAudioTrack(stream: MediaStream | null) {
+  return Boolean(stream?.getAudioTracks().some((track) => track.readyState === 'live'));
+}
+
 function getPlaybackTuning() {
   if (isAppleMobileBrowser()) {
     return {
@@ -311,6 +367,19 @@ function getPlaybackTuning() {
         ratio: 10,
         attack: 0.003,
         release: 0.22,
+      },
+    };
+  }
+
+  if (isAndroidChromeBrowser()) {
+    return {
+      gain: ANDROID_CHROME_PLAYBACK_GAIN,
+      compressor: {
+        threshold: -20,
+        knee: 12,
+        ratio: 4,
+        attack: 0.006,
+        release: 0.1,
       },
     };
   }
@@ -798,14 +867,21 @@ export function useLiveSession({
       throw new Error('La voz no está disponible en este entorno.');
     }
 
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Este dispositivo no permite acceder al micrófono.');
-    }
+    assertMicrophoneRuntimeAvailable();
 
     let stream: MediaStream | null = null;
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (hasLiveAudioTrack(mediaStreamRef.current)) {
+        addLog('system', 'Micrófono preparado.');
+        return;
+      }
+
+      stream = await navigator.mediaDevices.getUserMedia(getMicrophoneConstraints());
+      if (shouldKeepCaptureWarm()) {
+        mediaStreamRef.current = stream;
+        stream = null;
+      }
       addLog('system', 'Micrófono preparado.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo activar el micrófono.';
@@ -1303,6 +1379,8 @@ export function useLiveSession({
       throw new Error('Este navegador no soporta audio en tiempo real.');
     }
 
+    assertMicrophoneRuntimeAvailable();
+
     if (!audioContextRef.current || audioContextRef.current.state === 'closed' || !playbackGainRef.current) {
       const playbackContext = new AudioContextClass({ sampleRate: 24_000 });
       audioContextRef.current = playbackContext;
@@ -1327,7 +1405,10 @@ export function useLiveSession({
       return;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const activeStream = mediaStreamRef.current;
+    const stream = hasLiveAudioTrack(activeStream) && activeStream
+      ? activeStream
+      : await navigator.mediaDevices.getUserMedia(getMicrophoneConstraints());
     mediaStreamRef.current = stream;
 
     const captureContext = new AudioContextClass({ sampleRate: 16_000 });
@@ -1794,7 +1875,7 @@ export function useLiveSession({
         if (isSafariBrowser()) {
           setPreferredAudioSession('playback');
         }
-        if (isMobileBrowser()) {
+        if (shouldReleaseCaptureAfterTurn()) {
           window.setTimeout(() => {
             if (turnStateRef.current !== 'recording') {
               teardownAudioCapture();
@@ -2149,7 +2230,7 @@ export function useLiveSession({
     if (isSafariBrowser()) {
       setPreferredAudioSession('playback');
     }
-    if (isMobileBrowser()) {
+    if (shouldReleaseCaptureAfterTurn()) {
       window.setTimeout(() => {
         if (turnStateRef.current !== 'recording') {
           teardownAudioCapture();
