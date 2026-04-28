@@ -807,6 +807,7 @@ export function useLiveSession({
   const pendingOrderConfirmationSignatureRef = useRef('');
   const confirmationPendingActivatedThisTurnRef = useRef(false);
   const pendingConfirmationPromptRef = useRef('');
+  const pendingLocalFallbackMessageRef = useRef('');
   const pendingAddFallbackRef = useRef<PendingAddFallback | null>(null);
   const lastAssistantOutputSignatureRef = useRef('');
   const synthesizedSpeechSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -1095,6 +1096,7 @@ export function useLiveSession({
     currentTurnHadAssistantOutputRef.current = false;
     confirmationPendingActivatedThisTurnRef.current = false;
     pendingConfirmationPromptRef.current = '';
+    pendingLocalFallbackMessageRef.current = '';
     pendingAddFallbackRef.current = null;
     lastAssistantOutputSignatureRef.current = '';
   }, [clearAssistantSpeechTimeout, clearFallbackSpeechTimeout, clearFastLocalIntentTimeout]);
@@ -1868,7 +1870,17 @@ export function useLiveSession({
     return true;
   }, [addLog, applyTurnCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
 
-  const tryHandleLocalIntent = useCallback(async (options: { allowConfirm?: boolean } = {}) => {
+  const resolveHandledTurnSpeech = useCallback(
+    (fallbackMessage: string, speakNow: boolean) => {
+      pendingLocalFallbackMessageRef.current = fallbackMessage;
+      if (speakNow) {
+        concludeHandledTurn(fallbackMessage);
+      }
+    },
+    [concludeHandledTurn],
+  );
+
+  const tryHandleLocalIntent = useCallback(async (options: { allowConfirm?: boolean; speakFallback?: boolean } = {}) => {
     const transcript = latestInputTranscriptRef.current.trim();
     if (!transcript) {
       return false;
@@ -1895,7 +1907,7 @@ export function useLiveSession({
       resetPendingOrderConfirmation();
       currentTurnLocallyHandledRef.current = true;
       addLog('system', `Fallback local silencioso: añadido ${addition.quantityApplied}x ${intent.item.name}.`);
-      concludeHandledTurn(`He añadido ${addition.quantityApplied} ${intent.item.name} al pedido.`);
+      resolveHandledTurnSpeech(`He añadido ${addition.quantityApplied} ${intent.item.name} al pedido.`, options.speakFallback !== false);
       return true;
     }
 
@@ -1917,7 +1929,10 @@ export function useLiveSession({
         'system',
         `Fallback local silencioso: añadidos ${additions.map((entry) => `${entry.addition.quantityApplied}x ${entry.item.name}`).join(', ')}.`,
       );
-      concludeHandledTurn(`He añadido ${additions.map((entry) => `${entry.addition.quantityApplied} de ${entry.item.name}`).join(', ')} al pedido.`);
+      resolveHandledTurnSpeech(
+        `He añadido ${additions.map((entry) => `${entry.addition.quantityApplied} de ${entry.item.name}`).join(', ')} al pedido.`,
+        options.speakFallback !== false,
+      );
       return true;
     }
 
@@ -2032,7 +2047,7 @@ export function useLiveSession({
     }
 
     return false;
-  }, [addLog, applyTurnCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation]);
+  }, [addLog, applyTurnCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation, resolveHandledTurnSpeech]);
 
   const scheduleFastLocalIntent = useCallback(() => {
     if (
@@ -2045,7 +2060,7 @@ export function useLiveSession({
     fastLocalIntentTimeoutRef.current = window.setTimeout(() => {
       fastLocalIntentTimeoutRef.current = null;
 
-      void tryHandleLocalIntent({ allowConfirm: false });
+      void tryHandleLocalIntent({ allowConfirm: false, speakFallback: false });
     }, FAST_LOCAL_INTENT_DELAY_MS);
   }, [clearFastLocalIntentTimeout, tryHandleLocalIntent]);
 
@@ -2317,6 +2332,15 @@ export function useLiveSession({
               ) {
                 handledLocally = true;
                 concludeHandledTurn(pendingConfirmationPromptRef.current);
+              }
+              if (
+                !handledLocally &&
+                pendingLocalFallbackMessageRef.current &&
+                !currentTurnHadAssistantOutputRef.current &&
+                !currentTurnHadAudioOutputRef.current
+              ) {
+                handledLocally = true;
+                concludeHandledTurn(pendingLocalFallbackMessageRef.current);
               }
               const assistantClaimsMutation = assistantTextClaimsMutation(lastAssistantTextRef.current);
               const hadVerifiedMutation =
