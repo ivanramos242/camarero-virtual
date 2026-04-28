@@ -2220,29 +2220,25 @@ export function useLiveSession({
               const responses = [];
 
               for (const functionCall of message.toolCall.functionCalls) {
-                if (processedToolCallIdsRef.current.has(functionCall.id)) {
+                const toolCallId = typeof functionCall.id === 'string' && functionCall.id.trim() ? functionCall.id : '';
+                if (toolCallId && processedToolCallIdsRef.current.has(toolCallId)) {
                   continue;
                 }
 
-                processedToolCallIdsRef.current.add(functionCall.id);
+                if (toolCallId) {
+                  processedToolCallIdsRef.current.add(toolCallId);
+                }
                 const args = (functionCall.args as Record<string, unknown>) ?? {};
                 const toolCallSignature = buildToolCallSignature(functionCall.name, args);
-                let result: ToolResult;
-
-                if (currentTurnLocallyHandledRef.current) {
-                  result = { success: true, message: 'Turno ya resuelto localmente.' };
+                const cachedResult = processedToolCallSignaturesRef.current.get(toolCallSignature);
+                const result = cachedResult ?? (await runTool(functionCall.name, args));
+                if (!cachedResult) {
                   processedToolCallSignaturesRef.current.set(toolCallSignature, result);
                 } else {
-                  const cachedResult = processedToolCallSignaturesRef.current.get(toolCallSignature);
-                  result = cachedResult ?? (await runTool(functionCall.name, args));
-                  if (!cachedResult) {
-                    processedToolCallSignaturesRef.current.set(toolCallSignature, result);
-                  } else {
-                    addLog('system', `Tool call duplicada ignorada: ${functionCall.name}.`);
-                  }
+                  addLog('system', `Tool call duplicada ignorada: ${functionCall.name}.`);
                 }
                 responses.push({
-                  id: functionCall.id,
+                  id: toolCallId || functionCall.id,
                   name: functionCall.name,
                   response: { result },
                 });
