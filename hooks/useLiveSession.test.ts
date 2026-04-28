@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CartItem, MenuItem } from '../types';
-import { buildToolCallSignature, extractVoiceNotes, getTurnRecoveryTimeoutMs, parseLocalVoiceIntent } from './useLiveSession';
+import {
+  buildToolCallSignature,
+  extractVoiceNotes,
+  getTurnRecoveryTimeoutMs,
+  mergeVoiceTranscriptFragment,
+  parseLocalVoiceIntent,
+} from './useLiveSession';
 
 const croquetas: MenuItem = {
   id: 'croquetas-caseras',
@@ -95,6 +101,28 @@ describe('parseLocalVoiceIntent', () => {
       throw new Error('Se esperaba una intención de alta múltiple.');
     }
     expect(intent.items).toHaveLength(2);
+  });
+
+  it('detecta todos los platos aunque la transcripción no incluya una conjunción clara', () => {
+    const intent = parseLocalVoiceIntent('ponme dos croquetas una tarta de queso', [croquetas, tarta], []);
+    expect(intent.type).toBe('addMany');
+    if (intent.type !== 'addMany') {
+      throw new Error('Se esperaba una intención de alta múltiple.');
+    }
+    expect(intent.items.map((entry) => [entry.item.id, entry.quantity])).toEqual([
+      ['croquetas-caseras', 2],
+      ['tarta-de-queso', 1],
+    ]);
+  });
+
+  it('reconstruye una frase completa desde fragmentos de transcripción incremental', () => {
+    const first = mergeVoiceTranscriptFragment('', 'ponme dos croquetas');
+    const second = mergeVoiceTranscriptFragment(first, 'croquetas y una tarta');
+    const third = mergeVoiceTranscriptFragment(second, 'ponme dos croquetas y una tarta');
+
+    expect(first).toBe('ponme dos croquetas');
+    expect(second).toBe('ponme dos croquetas y una tarta');
+    expect(third).toBe('ponme dos croquetas y una tarta');
   });
 
   it('conserva las observaciones al detectar un alta clara de pedido', () => {
