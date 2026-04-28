@@ -69,6 +69,10 @@ export function buildToolCallSignature(name: string, args: Record<string, unknow
   });
 }
 
+function buildTurnAddKey(menuItemId: string, notes?: string) {
+  return `${menuItemId}:${normalizeVoiceText(notes ?? '')}`;
+}
+
 const MAX_RECORDING_MS = 120_000;
 const VOICE_CLIENT_BUILD = 'ptt-v2-no-explicit-vad';
 const DEFAULT_PLAYBACK_GAIN = 2.15;
@@ -793,6 +797,7 @@ export function useLiveSession({
   const currentTurnHadToolCallRef = useRef(false);
   const processedToolCallIdsRef = useRef<Set<string>>(new Set());
   const processedToolCallSignaturesRef = useRef<Map<string, ToolResult>>(new Map());
+  const currentTurnAddedQuantitiesRef = useRef<Map<string, number>>(new Map());
   const currentTurnLocallyHandledRef = useRef(false);
   const currentTurnAddedToOrderRef = useRef(false);
   const currentTurnRemovedFromOrderRef = useRef(false);
@@ -943,6 +948,33 @@ export function useLiveSession({
     [onAddToCart],
   );
 
+  const applyTurnCartAdd = useCallback(
+    (item: MenuItem, quantity: number, notes?: string) => {
+      const key = buildTurnAddKey(item.id, notes);
+      const previousQuantity = currentTurnAddedQuantitiesRef.current.get(key) ?? 0;
+      const quantityDelta = Math.max(0, quantity - previousQuantity);
+
+      if (quantityDelta <= 0) {
+        return {
+          applied: false,
+          items: cartItemsRef.current,
+          quantityApplied: 0,
+        };
+      }
+
+      const nextItems = applyCartAdd(item, quantityDelta, notes);
+      currentTurnAddedQuantitiesRef.current.set(key, previousQuantity + quantityDelta);
+      currentTurnAddedToOrderRef.current = true;
+
+      return {
+        applied: true,
+        items: nextItems,
+        quantityApplied: quantityDelta,
+      };
+    },
+    [applyCartAdd],
+  );
+
   const applyCartRemoval = useCallback(
     (item: MenuItem, quantity: number, notes?: string) => {
       const result = onRemoveFromOrder(item.id, quantity, item.name, notes);
@@ -1055,6 +1087,7 @@ export function useLiveSession({
     currentTurnHadToolCallRef.current = false;
     processedToolCallIdsRef.current.clear();
     processedToolCallSignaturesRef.current.clear();
+    currentTurnAddedQuantitiesRef.current.clear();
     currentTurnLocallyHandledRef.current = false;
     currentTurnAddedToOrderRef.current = false;
     currentTurnRemovedFromOrderRef.current = false;
@@ -1337,15 +1370,6 @@ export function useLiveSession({
         addLog('system', `Mesa actualizada a ${count} comensales.`);
         result = { success: true, message: `${count} comensales actualizados.` };
       } else if (name === 'addToOrder') {
-        if (currentTurnAddedToOrderRef.current) {
-          pendingAddFallbackRef.current = null;
-          result = {
-            success: true,
-            message: `El plato ya estaba aplicado en este turno. Pedido actual: ${summarizeCartItems(cartItemsRef.current)}`,
-          };
-          return result;
-        }
-
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
@@ -1368,14 +1392,20 @@ export function useLiveSession({
           };
           addLog('error', result.error);
         } else {
-          const nextCartItems = applyCartAdd(item, quantity, notes);
+          const addition = applyTurnCartAdd(item, quantity, notes);
           resetPendingOrderConfirmation();
-          currentTurnAddedToOrderRef.current = true;
           pendingAddFallbackRef.current = null;
+          if (!addition.applied) {
+            result = {
+              success: true,
+              message: `${item.name} ya estaba aplicado en este turno. Pedido actual: ${summarizeCartItems(addition.items)}`,
+            };
+            return result;
+          }
           addLog('system', `Añadido ${quantity}x ${item.name}.`);
           result = {
             success: true,
-            message: `${quantity}x ${item.name} añadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems(nextCartItems)}`,
+            message: `${addition.quantityApplied}x ${item.name} añadidos correctamente.${notes ? ` Observaciones: ${notes}.` : ''} Pedido actual: ${summarizeCartItems(addition.items)}`,
           };
         }
       } else if (name === 'removeFromOrder') {
@@ -1443,7 +1473,7 @@ export function useLiveSession({
 
       return result;
     },
-    [addLog, applyCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, disconnect, onSetDiners, resetPendingOrderConfirmation],
+    [addLog, applyTurnCartAdd, applyCartRemoval, attemptConfirmCurrentOrder, disconnect, onSetDiners, resetPendingOrderConfirmation],
   );
 
   const ensurePlaybackPipeline = useCallback(async () => {
@@ -1825,19 +1855,22 @@ export function useLiveSession({
       return false;
     }
 
-    currentTurnLocallyHandledRef.current = true;
-    currentTurnAddedToOrderRef.current = true;
     pendingAddFallbackRef.current = null;
-    applyCartAdd(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
+    const addition = applyTurnCartAdd(fallbackItem, fallbackArgs.quantity, fallbackArgs.notes);
+    if (!addition.applied) {
+      return false;
+    }
+
+    currentTurnLocallyHandledRef.current = true;
     resetPendingOrderConfirmation();
-    addLog('system', `Fallback silencioso desde tool call: añadido ${fallbackArgs.quantity}x ${fallbackItem.name}.`);
-    concludeHandledTurn(`He añadido ${fallbackArgs.quantity} ${fallbackItem.name} al pedido.`);
+    addLog('system', `Fallback silencioso desde tool call: añadido ${addition.quantityApplied}x ${fallbackItem.name}.`);
+    concludeHandledTurn(`He añadido ${addition.quantityApplied} ${fallbackItem.name} al pedido.`);
     return true;
-  }, [addLog, applyCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
+  }, [addLog, applyTurnCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
 
   const tryHandleLocalIntent = useCallback(async (options: { allowConfirm?: boolean } = {}) => {
     const transcript = latestInputTranscriptRef.current.trim();
-    if (!transcript || currentTurnLocallyHandledRef.current) {
+    if (!transcript) {
       return false;
     }
 
@@ -1853,35 +1886,38 @@ export function useLiveSession({
     }
 
     if (intent.type === 'add') {
-      if (currentTurnAddedToOrderRef.current) {
+      const addition = applyTurnCartAdd(intent.item, intent.quantity, intent.notes);
+
+      if (!addition.applied) {
         return false;
       }
 
-      currentTurnLocallyHandledRef.current = true;
-      applyCartAdd(intent.item, intent.quantity, intent.notes);
       resetPendingOrderConfirmation();
-      currentTurnAddedToOrderRef.current = true;
-      addLog('system', `Fallback local silencioso: añadido ${intent.quantity}x ${intent.item.name}.`);
-      concludeHandledTurn(`He añadido ${intent.quantity} ${intent.item.name} al pedido.`);
+      currentTurnLocallyHandledRef.current = true;
+      addLog('system', `Fallback local silencioso: añadido ${addition.quantityApplied}x ${intent.item.name}.`);
+      concludeHandledTurn(`He añadido ${addition.quantityApplied} ${intent.item.name} al pedido.`);
       return true;
     }
 
     if (intent.type === 'addMany') {
-      if (currentTurnAddedToOrderRef.current) {
+      const additions = intent.items
+        .map((entry) => ({
+          ...entry,
+          addition: applyTurnCartAdd(entry.item, entry.quantity, entry.notes),
+        }))
+        .filter((entry) => entry.addition.applied);
+
+      if (additions.length === 0) {
         return false;
       }
 
-      currentTurnLocallyHandledRef.current = true;
-      intent.items.forEach((entry) => {
-        applyCartAdd(entry.item, entry.quantity, entry.notes);
-      });
       resetPendingOrderConfirmation();
-      currentTurnAddedToOrderRef.current = true;
+      currentTurnLocallyHandledRef.current = true;
       addLog(
         'system',
-        `Fallback local silencioso: añadidos ${intent.items.map((entry) => `${entry.quantity}x ${entry.item.name}`).join(', ')}.`,
+        `Fallback local silencioso: añadidos ${additions.map((entry) => `${entry.addition.quantityApplied}x ${entry.item.name}`).join(', ')}.`,
       );
-      concludeHandledTurn(`He añadido ${intent.items.map((entry) => `${entry.quantity} de ${entry.item.name}`).join(', ')} al pedido.`);
+      concludeHandledTurn(`He añadido ${additions.map((entry) => `${entry.addition.quantityApplied} de ${entry.item.name}`).join(', ')} al pedido.`);
       return true;
     }
 
@@ -1996,11 +2032,10 @@ export function useLiveSession({
     }
 
     return false;
-  }, [addLog, applyCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation]);
+  }, [addLog, applyTurnCartAdd, applyCartRemoval, applyCartRemovalBatch, attemptConfirmCurrentOrder, concludeHandledTurn, resetPendingOrderConfirmation]);
 
   const scheduleFastLocalIntent = useCallback(() => {
     if (
-      currentTurnLocallyHandledRef.current ||
       (turnStateRef.current !== 'processing' && turnStateRef.current !== 'speaking')
     ) {
       return;
