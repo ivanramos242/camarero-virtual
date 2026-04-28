@@ -82,7 +82,7 @@ const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
 const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
 const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
 const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
-const FAST_LOCAL_INTENT_DELAY_MS = 180;
+const FAST_LOCAL_INTENT_DELAY_MS = 650;
 const LOCAL_FALLBACK_SPEECH_DELAY_MS = 120;
 const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_400;
 
@@ -1337,6 +1337,15 @@ export function useLiveSession({
         addLog('system', `Mesa actualizada a ${count} comensales.`);
         result = { success: true, message: `${count} comensales actualizados.` };
       } else if (name === 'addToOrder') {
+        if (currentTurnAddedToOrderRef.current) {
+          pendingAddFallbackRef.current = null;
+          result = {
+            success: true,
+            message: `El plato ya estaba aplicado en este turno. Pedido actual: ${summarizeCartItems(cartItemsRef.current)}`,
+          };
+          return result;
+        }
+
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
@@ -1370,6 +1379,14 @@ export function useLiveSession({
           };
         }
       } else if (name === 'removeFromOrder') {
+        if (currentTurnRemovedFromOrderRef.current) {
+          result = {
+            success: true,
+            message: `La corrección ya estaba aplicada en este turno. Pedido actual: ${summarizeCartItems(cartItemsRef.current)}`,
+          };
+          return result;
+        }
+
         const itemName = typeof args.itemName === 'string' ? args.itemName : typeof args.menuItemId === 'string' ? args.menuItemId : '';
         const quantity = Math.max(1, Math.min(12, Number(args.quantity ?? 1) || 1));
         const notes = typeof args.notes === 'string' ? normalizeVoiceNote(args.notes) : undefined;
@@ -1818,7 +1835,7 @@ export function useLiveSession({
     return true;
   }, [addLog, applyCartAdd, concludeHandledTurn, resetPendingOrderConfirmation]);
 
-  const tryHandleLocalIntent = useCallback(async () => {
+  const tryHandleLocalIntent = useCallback(async (options: { allowConfirm?: boolean } = {}) => {
     const transcript = latestInputTranscriptRef.current.trim();
     if (!transcript || currentTurnLocallyHandledRef.current) {
       return false;
@@ -1956,6 +1973,10 @@ export function useLiveSession({
     }
 
     if (intent.type === 'confirm') {
+      if (options.allowConfirm === false) {
+        return false;
+      }
+
       if (currentTurnConfirmedOrderRef.current) {
         return false;
       }
@@ -1980,10 +2001,7 @@ export function useLiveSession({
   const scheduleFastLocalIntent = useCallback(() => {
     if (
       currentTurnLocallyHandledRef.current ||
-      currentTurnHadToolCallRef.current ||
-      currentTurnHadAudioOutputRef.current ||
-      currentTurnHadAssistantOutputRef.current ||
-      turnStateRef.current !== 'processing'
+      (turnStateRef.current !== 'processing' && turnStateRef.current !== 'speaking')
     ) {
       return;
     }
@@ -1992,7 +2010,7 @@ export function useLiveSession({
     fastLocalIntentTimeoutRef.current = window.setTimeout(() => {
       fastLocalIntentTimeoutRef.current = null;
 
-      void tryHandleLocalIntent();
+      void tryHandleLocalIntent({ allowConfirm: false });
     }, FAST_LOCAL_INTENT_DELAY_MS);
   }, [clearFastLocalIntentTimeout, tryHandleLocalIntent]);
 
