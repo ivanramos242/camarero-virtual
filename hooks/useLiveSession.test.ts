@@ -35,6 +35,45 @@ const tarta: MenuItem = {
   voiceAliases: ['tarta'],
 };
 
+const tartaChocolate: MenuItem = {
+  id: 'tarta-de-chocolate',
+  name: 'Tarta de chocolate',
+  description: 'Tarta de cacao.',
+  price: 6.4,
+  category: 'Postres',
+  allergens: ['gluten', 'lacteos'],
+  dietary: [],
+  available: true,
+  ingredients: ['chocolate'],
+  voiceAliases: ['tarta choco'],
+};
+
+const cola: MenuItem = {
+  id: 'coca-cola',
+  name: 'Coca-Cola',
+  description: 'Refresco.',
+  price: 2.8,
+  category: 'Bebidas',
+  allergens: [],
+  dietary: [],
+  available: true,
+  ingredients: [],
+  voiceAliases: ['coca cola'],
+};
+
+const colaZero: MenuItem = {
+  id: 'coca-cola-zero',
+  name: 'Coca-Cola Zero',
+  description: 'Refresco sin azúcar.',
+  price: 2.8,
+  category: 'Bebidas',
+  allergens: [],
+  dietary: [],
+  available: true,
+  ingredients: [],
+  voiceAliases: ['coca cola zero'],
+};
+
 function createCartLine(id: string, menuItem: MenuItem, quantity: number, notes?: string): CartItem {
   return {
     id,
@@ -53,7 +92,7 @@ describe('parseLocalVoiceIntent', () => {
         queuedAudioMs: 20_000,
         hasLocalSpeech: false,
       }),
-    ).toBe(22_500);
+    ).toBe(45_000);
   });
 
   it('mantiene una ventana amplia para voz local y evita cortar frases largas', () => {
@@ -63,7 +102,7 @@ describe('parseLocalVoiceIntent', () => {
         queuedAudioMs: 0,
         hasLocalSpeech: true,
       }),
-    ).toBe(22_000);
+    ).toBe(45_000);
   });
 
   it('usa una espera distinta cuando Ramiro aún está pensando y no hablando', () => {
@@ -73,7 +112,7 @@ describe('parseLocalVoiceIntent', () => {
         queuedAudioMs: 20_000,
         hasLocalSpeech: true,
       }),
-    ).toBe(12_000);
+    ).toBe(25_000);
   });
 
   it('extrae observaciones habituales del pedido desde la frase del cliente', () => {
@@ -113,6 +152,32 @@ describe('parseLocalVoiceIntent', () => {
       ['croquetas-caseras', 2],
       ['tarta-de-queso', 1],
     ]);
+  });
+
+  it('detecta bebidas con nombres solapados aunque falten separadores claros', () => {
+    const intent = parseLocalVoiceIntent('ponme dos coca cola zero una coca cola', [cola, colaZero], []);
+    expect(intent.type).toBe('addMany');
+    if (intent.type !== 'addMany') {
+      throw new Error('Se esperaba una intención de alta múltiple.');
+    }
+    expect(intent.items.map((entry) => [entry.item.id, entry.quantity])).toEqual([
+      ['coca-cola-zero', 2],
+      ['coca-cola', 1],
+    ]);
+  });
+
+  it('no elige un alias genérico cuando hay platos parecidos y debe preguntar', () => {
+    const intent = parseLocalVoiceIntent('ponme una tarta', [tarta, tartaChocolate], []);
+    expect(intent.type).toBe('unknown');
+  });
+
+  it('detecta cantidades escritas hasta doce', () => {
+    const intent = parseLocalVoiceIntent('ponme ocho croquetas', [croquetas, tarta], []);
+    expect(intent.type).toBe('add');
+    if (intent.type !== 'add') {
+      throw new Error('Se esperaba una intención de alta.');
+    }
+    expect(intent.quantity).toBe(8);
   });
 
   it('reconstruye una frase completa desde fragmentos de transcripción incremental', () => {

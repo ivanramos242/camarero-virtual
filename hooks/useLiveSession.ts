@@ -12,7 +12,7 @@ import type {
   SessionTokenResponse,
   VoiceTurnState,
 } from '../types';
-import { fetchVoiceDiagnostics, synthesizeKitchenAnnouncementOnApi as synthesizeVoiceFallbackOnApi } from '../utils/api';
+import { fetchVoiceDiagnostics, synthesizeAssistantVoiceOnApi } from '../utils/api';
 import { base64ToUint8Array, createPcmBlob, decodeAudioData } from '../utils/audio';
 import { buildCartSignature, summarizeCartItems, type RemoveCartUnitsBatchResult, type RemoveCartUnitsTarget } from '../utils/cartState';
 import { resolveMenuItemMatch } from '../utils/voiceMatching';
@@ -120,10 +120,9 @@ const CAPTURE_IDLE_TEARDOWN_MS = 12_000;
 const SAFARI_CAPTURE_RELEASE_MS = 180;
 const AUTO_RECONNECT_DELAY_MS = 1_500;
 const MAX_AUTO_RECONNECT_ATTEMPTS = 2;
-const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 12_000;
-const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 18_000;
-const TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS = 22_000;
-const TURN_RECOVERY_AUDIO_GRACE_MS = 2_500;
+const TURN_RECOVERY_PROCESSING_TIMEOUT_MS = 25_000;
+const TURN_RECOVERY_SPEAKING_TIMEOUT_MS = 45_000;
+const TURN_RECOVERY_AUDIO_GRACE_MS = 8_000;
 const FAST_LOCAL_INTENT_DELAY_MS = 650;
 const LOCAL_FALLBACK_SPEECH_DELAY_MS = 120;
 const ASSISTANT_TRANSCRIPT_SPEECH_DELAY_MS = 1_400;
@@ -333,6 +332,12 @@ function parseVoiceQuantity(rawText: string) {
     cuatro: 4,
     cinco: 5,
     seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10,
+    once: 11,
+    doce: 12,
   };
 
   const token = normalized.split(' ').find((part) => quantityMap[part]);
@@ -579,15 +584,59 @@ export function getTurnRecoveryTimeoutMs({
   }
 
   const playbackWindowMs = Math.max(0, Math.ceil(queuedAudioMs + TURN_RECOVERY_AUDIO_GRACE_MS));
-  const localSpeechWindowMs = hasLocalSpeech ? TURN_RECOVERY_LOCAL_SPEECH_TIMEOUT_MS : 0;
+  const localSpeechWindowMs = hasLocalSpeech ? TURN_RECOVERY_SPEAKING_TIMEOUT_MS : 0;
 
   return Math.max(TURN_RECOVERY_SPEAKING_TIMEOUT_MS, playbackWindowMs, localSpeechWindowMs);
 }
 
 function getMenuMentionPhrases(item: MenuItem) {
-  return [item.name, ...(item.voiceAliases ?? [])]
-    .map((value) => normalizeVoiceText(value))
-    .filter((value) => value.length > 2);
+  const values = [
+    { value: item.name, isExactName: true },
+    ...(item.voiceAliases ?? []).map((value) => ({ value, isExactName: false })),
+  ];
+
+  return values
+    .map(({ value, isExactName }) => ({
+      phrase: normalizeVoiceText(value),
+      isExactName,
+    }))
+    .filter((entry) => entry.phrase.length > 2);
+}
+
+function normalizedPhraseContains(haystack: string, needle: string) {
+  return haystack === needle || haystack.startsWith(`${needle} `) || haystack.endsWith(` ${needle}`) || haystack.includes(` ${needle} `);
+}
+
+function isUnambiguousMentionPhrase(item: MenuItem, phrase: string, isExactName: boolean, menuItems: MenuItem[]) {
+  if (isExactName) {
+    return true;
+  }
+
+  return !menuItems
+    .filter((candidate) => candidate.available && candidate.id !== item.id)
+    .some((candidate) => getMenuMentionPhrases(candidate).some((candidatePhrase) => normalizedPhraseContains(candidatePhrase.phrase, phrase)));
+}
+
+function findNormalizedPhraseIndexes(text: string, phrase: string) {
+  const indexes: number[] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const index = text.indexOf(phrase, searchFrom);
+    if (index < 0) {
+      break;
+    }
+
+    const startsAtWordBoundary = index === 0 || text[index - 1] === ' ';
+    const endsAtWordBoundary = index + phrase.length === text.length || text[index + phrase.length] === ' ';
+    if (startsAtWordBoundary && endsAtWordBoundary) {
+      indexes.push(index);
+    }
+
+    searchFrom = index + 1;
+  }
+
+  return indexes;
 }
 
 function extractMentionedAddIntents(transcript: string, menuItems: MenuItem[]) {
@@ -596,10 +645,12 @@ function extractMentionedAddIntents(transcript: string, menuItems: MenuItem[]) {
     return [];
   }
 
-  const phraseOwners = new Map<string, number>();
+  const phraseOwners = new Map<string, Set<string>>();
   for (const item of menuItems.filter((candidate) => candidate.available)) {
-    for (const phrase of getMenuMentionPhrases(item)) {
-      phraseOwners.set(phrase, (phraseOwners.get(phrase) ?? 0) + 1);
+    for (const { phrase } of getMenuMentionPhrases(item)) {
+      const owners = phraseOwners.get(phrase) ?? new Set<string>();
+      owners.add(item.id);
+      phraseOwners.set(phrase, owners);
     }
   }
 
@@ -607,14 +658,15 @@ function extractMentionedAddIntents(transcript: string, menuItems: MenuItem[]) {
     .filter((item) => item.available)
     .flatMap((item) =>
       getMenuMentionPhrases(item)
-        .filter((phrase) => phraseOwners.get(phrase) === 1)
-        .map((phrase) => ({
-          item,
-          phrase,
-          index: normalized.indexOf(phrase),
-        })),
+        .filter(({ phrase, isExactName }) => phraseOwners.get(phrase)?.size === 1 && isUnambiguousMentionPhrase(item, phrase, isExactName, menuItems))
+        .flatMap(({ phrase }) =>
+          findNormalizedPhraseIndexes(normalized, phrase).map((index) => ({
+            item,
+            phrase,
+            index,
+          })),
+        ),
     )
-    .filter((mention) => mention.index >= 0)
     .sort((left, right) => {
       if (left.index !== right.index) {
         return left.index - right.index;
@@ -624,12 +676,7 @@ function extractMentionedAddIntents(transcript: string, menuItems: MenuItem[]) {
     });
 
   const selectedMentions: Array<{ item: MenuItem; phrase: string; index: number; end: number }> = [];
-  const seenItems = new Set<string>();
   for (const mention of mentions) {
-    if (seenItems.has(mention.item.id)) {
-      continue;
-    }
-
     const end = mention.index + mention.phrase.length;
     const overlapsExisting = selectedMentions.some((selected) => mention.index < selected.end && end > selected.index);
     if (overlapsExisting) {
@@ -637,7 +684,6 @@ function extractMentionedAddIntents(transcript: string, menuItems: MenuItem[]) {
     }
 
     selectedMentions.push({ ...mention, end });
-    seenItems.add(mention.item.id);
   }
 
   selectedMentions.sort((left, right) => left.index - right.index);
@@ -944,7 +990,6 @@ export function useLiveSession({
   const processedToolCallSignaturesRef = useRef<Map<string, ToolResult>>(new Map());
   const currentTurnAddedQuantitiesRef = useRef<Map<string, number>>(new Map());
   const currentTurnAddedEntriesRef = useRef<Map<string, TurnAddedEntry>>(new Map());
-  const currentTurnLocallyHandledRef = useRef(false);
   const currentTurnAddedToOrderRef = useRef(false);
   const currentTurnRemovedFromOrderRef = useRef(false);
   const currentTurnConfirmedOrderRef = useRef(false);
@@ -1248,7 +1293,6 @@ export function useLiveSession({
     processedToolCallSignaturesRef.current.clear();
     currentTurnAddedQuantitiesRef.current.clear();
     currentTurnAddedEntriesRef.current.clear();
-    currentTurnLocallyHandledRef.current = false;
     currentTurnAddedToOrderRef.current = false;
     currentTurnRemovedFromOrderRef.current = false;
     currentTurnConfirmedOrderRef.current = false;
@@ -1798,58 +1842,6 @@ export function useLiveSession({
     );
   }, [clearTurnRecoveryTimeout, scheduleTurnRecovery, turnState]);
 
-  const speakWithBrowserVoice = useCallback(
-    (text: string) => {
-      const message = text.trim();
-      if (typeof window === 'undefined' || !('speechSynthesis' in window) || !message) {
-        return false;
-      }
-
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(message);
-        const voices = window.speechSynthesis.getVoices();
-        const spanishVoice =
-          voices.find((voice) => voice.lang.toLowerCase() === 'es-es') ??
-          voices.find((voice) => voice.lang.toLowerCase().startsWith('es'));
-
-        if (spanishVoice) {
-          utterance.voice = spanishVoice;
-        }
-
-        utterance.lang = spanishVoice?.lang || 'es-ES';
-        utterance.rate = 1.04;
-        utterance.pitch = 1;
-        utterance.volume = 1;
-
-        localSpeechUtteranceRef.current = utterance;
-        setTurnStateSafe('speaking');
-        scheduleTurnRecovery('voz local');
-
-        utterance.onend = () => {
-          if (localSpeechUtteranceRef.current === utterance) {
-            localSpeechUtteranceRef.current = null;
-          }
-          finalizeTurnIfReady();
-        };
-
-        utterance.onerror = () => {
-          if (localSpeechUtteranceRef.current === utterance) {
-            localSpeechUtteranceRef.current = null;
-          }
-          finalizeTurnIfReady();
-        };
-
-        window.speechSynthesis.speak(utterance);
-        return true;
-      } catch {
-        localSpeechUtteranceRef.current = null;
-        return false;
-      }
-    },
-    [finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
-  );
-
   const speakWithConsistentVoice = useCallback(
     async (text: string) => {
       const message = text.trim();
@@ -1863,10 +1855,6 @@ export function useLiveSession({
       }
       lastSpokenOutputSignatureRef.current = signature;
 
-      if (speakWithBrowserVoice(message)) {
-        return true;
-      }
-
       const speechToken = synthesizedSpeechTokenRef.current + 1;
       synthesizedSpeechTokenRef.current = speechToken;
 
@@ -1878,7 +1866,7 @@ export function useLiveSession({
           return false;
         }
 
-        const { audioBase64, sampleRate } = await synthesizeVoiceFallbackOnApi(message);
+        const { audioBase64, sampleRate } = await synthesizeAssistantVoiceOnApi(message);
         if (speechToken !== synthesizedSpeechTokenRef.current || currentTurnHadAudioOutputRef.current) {
           return false;
         }
@@ -1897,6 +1885,7 @@ export function useLiveSession({
         source.connect(playbackGainRef.current ?? audioContext.destination);
         synthesizedSpeechSourceRef.current = source;
         sourcesRef.current.add(source);
+        currentTurnHadAudioOutputRef.current = true;
 
         nextStartTimeRef.current = Math.max(nextStartTimeRef.current, audioContext.currentTime);
         source.start(nextStartTimeRef.current);
@@ -1926,7 +1915,7 @@ export function useLiveSession({
         return false;
       }
     },
-    [addLog, branding.assistantName, ensurePlaybackPipeline, finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe, speakWithBrowserVoice],
+    [addLog, branding.assistantName, ensurePlaybackPipeline, finalizeTurnIfReady, scheduleTurnRecovery, setTurnStateSafe],
   );
 
   const speakFallbackMessage = useCallback(
@@ -2023,7 +2012,6 @@ export function useLiveSession({
       return false;
     }
 
-    currentTurnLocallyHandledRef.current = true;
     resetPendingOrderConfirmation();
     addLog('system', `Fallback silencioso desde tool call: añadido ${addition.quantityApplied}x ${fallbackItem.name}.`);
     pendingLocalFallbackMessageRef.current = buildCurrentTurnAddConfirmationMessage();
@@ -2035,7 +2023,6 @@ export function useLiveSession({
     (fallbackMessage: string, speakNow: boolean) => {
       pendingLocalFallbackMessageRef.current = fallbackMessage;
       if (speakNow) {
-        currentTurnLocallyHandledRef.current = true;
         concludeHandledTurn(fallbackMessage);
       }
     },
@@ -2337,7 +2324,7 @@ export function useLiveSession({
               ?.map((part) => ('text' in part ? part.text : undefined))
               .filter((part): part is string => Boolean(part));
 
-            if (!currentTurnLocallyHandledRef.current && textParts && textParts.length > 0) {
+            if (textParts && textParts.length > 0) {
               const assistantText = textParts.join(' ').trim();
               const assistantSignature = normalizeVoiceText(assistantText);
               if (assistantText && assistantSignature && assistantSignature !== lastAssistantOutputSignatureRef.current) {
@@ -2361,7 +2348,7 @@ export function useLiveSession({
 
             const outputTranscript = message.serverContent?.outputTranscription?.text?.trim();
             const outputSignature = outputTranscript ? normalizeVoiceText(outputTranscript) : '';
-            if (!currentTurnLocallyHandledRef.current && outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
+            if (outputTranscript && outputSignature && outputSignature !== lastAssistantOutputSignatureRef.current) {
               lastAssistantOutputSignatureRef.current = outputSignature;
               lastOutputTranscriptRef.current = outputTranscript;
               lastAssistantTextRef.current = outputTranscript;
@@ -2407,7 +2394,7 @@ export function useLiveSession({
             const audioParts = message.serverContent?.modelTurn?.parts?.filter(
               (part): part is typeof part & { inlineData: { data: string } } => 'inlineData' in part && Boolean(part.inlineData?.data),
             );
-            if (!currentTurnLocallyHandledRef.current && audioParts && audioParts.length > 0 && audioContextRef.current) {
+            if (audioParts && audioParts.length > 0 && audioContextRef.current) {
               clearAssistantSpeechTimeout();
               clearFallbackSpeechTimeout();
               cancelSynthesizedSpeech();

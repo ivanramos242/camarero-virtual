@@ -129,6 +129,12 @@ export function parseVoiceQuantity(rawText: string) {
     cuatro: 4,
     cinco: 5,
     seis: 6,
+    siete: 7,
+    ocho: 8,
+    nueve: 9,
+    diez: 10,
+    once: 11,
+    doce: 12,
   };
 
   const token = normalized.split(' ').find((part) => quantityMap[part]);

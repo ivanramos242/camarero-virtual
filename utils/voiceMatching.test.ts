@@ -62,6 +62,8 @@ describe('voiceMatching', () => {
   it('detecta cantidades en texto natural', () => {
     expect(parseVoiceQuantity('ponme dos croquetas')).toBe(2);
     expect(parseVoiceQuantity('quiero 3 tartas')).toBe(3);
+    expect(parseVoiceQuantity('ocho croquetas')).toBe(8);
+    expect(parseVoiceQuantity('doce bebidas')).toBe(12);
   });
 
   it('resuelve por nombre exacto', () => {

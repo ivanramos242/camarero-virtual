@@ -369,7 +369,7 @@ const buildOpenAiSessionConfig = (): SessionTokenResponse => ({
 });
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error && error.message.trim() ? error.message : 'No se pudo generar la locucion de cocina.';
+  return error instanceof Error && error.message.trim() ? error.message : 'No se pudo generar la locución de cocina.';
 }
 
 function parseRetryDelayMs(rawMessage: string) {
@@ -393,7 +393,7 @@ function isGeminiQuotaError(error: unknown) {
 
 async function withGeminiApiKeyFallback<T>(runner: (apiKey: string, index: number) => Promise<T>) {
   if (serverConfig.geminiApiKeys.length === 0) {
-    throw new Error('La voz de Ramiro no esta disponible en el servidor.');
+    throw new Error('La voz de Ramiro no está disponible en el servidor.');
   }
 
   let lastError: unknown;
@@ -412,7 +412,7 @@ async function withGeminiApiKeyFallback<T>(runner: (apiKey: string, index: numbe
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('No se pudo completar la peticion a Gemini.');
+  throw lastError instanceof Error ? lastError : new Error('No se pudo completar la petición a Gemini.');
 }
 
 function toKitchenVoiceError(error: unknown) {
@@ -433,7 +433,7 @@ function toKitchenVoiceError(error: unknown) {
 
 async function synthesizeKitchenAnnouncement(text: string) {
   if (serverConfig.geminiApiKeys.length === 0) {
-    throw new Error('La voz de Ramiro no esta disponible en el servidor.');
+    throw new Error('La voz de Ramiro no está disponible en el servidor.');
   }
 
   if (Date.now() < kitchenAnnouncementCooldownUntil && kitchenAnnouncementCooldownMessage) {
@@ -485,7 +485,7 @@ async function synthesizeKitchenAnnouncement(text: string) {
     );
 
     if (!audioPart?.inlineData?.data) {
-      throw new Error(`Gemini no devolvio audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
+      throw new Error(`Gemini no devolvió audio para el aviso de cocina con el modelo ${serverConfig.geminiKitchenTtsModel}.`);
     }
 
     const payload = {
@@ -552,7 +552,7 @@ const runGeminiLiveDiagnostics = async () => {
 
   let liveCheck: { ok: boolean; message: string } = {
     ok: false,
-    message: 'No se ha probado la sesion Live.',
+    message: 'No se ha probado la sesión Live.',
   };
 
   try {
@@ -583,7 +583,7 @@ const runGeminiLiveDiagnostics = async () => {
         timeoutId = setTimeout(() => {
           finish({
             ok: false,
-            message: 'Timeout al abrir la sesion Live desde servidor.',
+            message: 'Timeout al abrir la sesión Live desde servidor.',
           });
         }, 8_000);
 
@@ -603,13 +603,13 @@ const runGeminiLiveDiagnostics = async () => {
               onopen: () => {
                 finish({
                   ok: true,
-                  message: 'El servidor ha abierto una sesion Gemini Live correctamente.',
+                  message: 'El servidor ha abierto una sesión Gemini Live correctamente.',
                 });
               },
               onclose: (event) => {
                 finish({
                   ok: false,
-                  message: `Gemini Live ha cerrado la sesion de prueba. Codigo ${event.code}${event.reason ? `, motivo: ${event.reason}` : ''}.`,
+                  message: `Gemini Live ha cerrado la sesión de prueba. Código ${event.code}${event.reason ? `, motivo: ${event.reason}` : ''}.`,
                 });
               },
               onerror: (error) => {
@@ -629,7 +629,7 @@ const runGeminiLiveDiagnostics = async () => {
           .catch((error) => {
             finish({
               ok: false,
-              message: error instanceof Error ? error.message : 'No se ha podido abrir la sesion Live desde servidor.',
+              message: error instanceof Error ? error.message : 'No se ha podido abrir la sesión Live desde servidor.',
             });
           });
       });
@@ -708,11 +708,11 @@ app.get('/api/debug/voice', async (_request, response) => {
       configuredModel: serverConfig.geminiLiveModel,
       tokenCheck: {
         ok: false,
-        message: 'No se ha podido completar el diagnostico.',
+        message: 'No se ha podido completar el diagnóstico.',
       },
       liveCheck: {
         ok: false,
-        message: error instanceof Error ? error.message : 'Error inesperado en el diagnostico.',
+        message: error instanceof Error ? error.message : 'Error inesperado en el diagnóstico.',
       },
     });
   }
@@ -725,8 +725,19 @@ app.post('/api/voice/trace', (request, response) => {
     response.status(204).end();
   } catch (error) {
     response.status(400).json({
-      message: error instanceof Error ? error.message : 'La traza de voz no es valida.',
+      message: error instanceof Error ? error.message : 'La traza de voz no es válida.',
     });
+  }
+});
+
+app.post('/api/voice/synthesize', async (request, response) => {
+  try {
+    const { text } = kitchenAnnouncementSchema.parse(request.body);
+    const payload = await synthesizeKitchenAnnouncement(text);
+    response.json(payload);
+  } catch (error) {
+    console.error('[voice] No se pudo sintetizar la respuesta de Ramiro:', error);
+    response.status(502).json({ message: getErrorMessage(error) });
   }
 });
 
@@ -1190,11 +1201,11 @@ app.post('/api/session/token', async (_request, response) => {
         response.json(payload);
         return;
       } catch (error) {
-        console.error('[voice] Gemini no ha podido abrir sesion, se intentara OpenAI:', error);
+        console.error('[voice] Gemini no ha podido abrir sesión, se intentará OpenAI:', error);
 
         if (!serverConfig.openAiApiKey) {
           response.status(502).json({
-            message: 'Gemini esta configurado pero la clave no es valida o no tiene acceso al modelo Live.',
+            message: 'Gemini está configurado pero la clave no es válida o no tiene acceso al modelo Live.',
           });
           return;
         }
@@ -1206,10 +1217,10 @@ app.post('/api/session/token', async (_request, response) => {
       return;
     }
 
-    response.status(503).json({ message: 'La voz no esta configurada en el servidor.' });
+    response.status(503).json({ message: 'La voz no está configurada en el servidor.' });
   } catch (error) {
-    console.error('[voice] No se pudo preparar la sesion de voz:', error);
-    response.status(500).json({ message: 'No se pudo abrir una sesion de voz.' });
+    console.error('[voice] No se pudo preparar la sesión de voz:', error);
+    response.status(500).json({ message: 'No se pudo abrir una sesión de voz.' });
   }
 });
 
@@ -1244,7 +1255,7 @@ app.post('/api/session/openai', express.text({ type: ['application/sdp', 'text/p
         requestId,
         body: answerSdp,
       });
-      response.status(openAiResponse.status).send(answerSdp || 'No se pudo abrir la sesion OpenAI.');
+      response.status(openAiResponse.status).send(answerSdp || 'No se pudo abrir la sesión OpenAI.');
       return;
     }
 
@@ -1254,8 +1265,8 @@ app.post('/api/session/openai', express.text({ type: ['application/sdp', 'text/p
     response.setHeader('Content-Type', 'application/sdp');
     response.send(answerSdp);
   } catch (error) {
-    console.error('[voice] No se pudo negociar la sesion OpenAI:', error);
-    response.status(500).send('No se pudo abrir la sesion OpenAI.');
+    console.error('[voice] No se pudo negociar la sesión OpenAI:', error);
+    response.status(500).send('No se pudo abrir la sesión OpenAI.');
   }
 });
 

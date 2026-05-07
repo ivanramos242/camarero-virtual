@@ -145,6 +145,13 @@ export async function synthesizeKitchenAnnouncementOnApi(text: string) {
   });
 }
 
+export async function synthesizeAssistantVoiceOnApi(text: string) {
+  return request<{ audioBase64: string; mimeType: string; sampleRate: number }>('/api/voice/synthesize', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function fetchKitchenSession() {
   return request<SessionStatusResponse>('/api/auth/session', {
     method: 'GET',
@@ -304,7 +311,7 @@ export async function createOpenAiRealtimeAnswer(endpoint: string, sdpOffer: str
 
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || 'No se pudo abrir la sesion de OpenAI.');
+    throw new Error(message || 'No se pudo abrir la sesión de OpenAI.');
   }
 
   return response.text();
